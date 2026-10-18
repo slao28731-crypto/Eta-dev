@@ -29,6 +29,8 @@
 - [x] **2026-10-18** 侧栏宽度对齐上游原版：`PaneMaxWidth 340.dp` → `PaneTargetWidth 326.dp`，`PaneWidthFraction 0.84f` → `0.76f`。缘由：393dp 屏上抽屉从 330.1dp 收窄到 298.7dp，卡片露出从 56.9dp 增到 88.3dp，叠层感才成立
 - [x] **2026-10-18** 补 `ConversationPaneMotionTest` 4 个用例：缩放/圆角随进度、圆角全程恒定、`foregroundShift` 端点值、缩放单调性
 - [x] **2026-10-18** 建 `demo/` 目录，4 份抽屉 HTML 原型（v5 叠层尝试 / v7 A-B 对比 / suture 照抄源码 / 旧版），供后续 UI 改动先看效果再落 Kotlin
+- [x] **2026-10-18** 深色卡片底色修复（方案 B）：展开时按 `paneProgress` 把卡片从 `background`(`#000000`) lerp 到 `surfaceContainer`(`#242424`)，关闭时系数归 0 保持原底色。同时 `ForegroundShadow` 12→16dp、加 0.5dp hairline 描边（alpha 随 progress），因为两层同色后只能靠圆角+阴影+描边表达层次。浅色零影响（两色本来就是同一档浅色）
+- [x] **2026-10-18** 建 `demo/dark-card-color.html`：四档提亮比例（0% / 50% / 72% / 100%）可实时切换的深色对比页，含灰阶差、色带位置、缺陷标注
 
 ## 进行中
 

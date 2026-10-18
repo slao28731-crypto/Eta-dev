@@ -2,6 +2,7 @@ package io.github.mangi.eta.ui.components
 
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.interaction.DragInteraction
@@ -32,6 +33,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
@@ -65,8 +68,22 @@ private object ConversationPaneMetrics {
      */
     val PaneTargetWidth = 326.dp
     val PaneWidthFraction = 0.76f
-    /** 前景卡片展开时的阴影，用边缘层次代替黑色遮罩。 */
-    val ForegroundShadow = 12.dp
+    /**
+     * 前景卡片展开时的阴影，用边缘层次代替黑色遮罩。
+     *
+     * 提到 16dp 是因为深色下卡片底色被提亮到与抽屉同色（见 [DarkPageLift]），
+     * 两层颜色一致时只剩圆角和阴影能表达层次，阴影太弱会糊成一片。
+     */
+    val ForegroundShadow = 16.dp
+    /**
+     * 深色下页面底色向抽屉底色提亮的比例。
+     *
+     * 纯黑 `background` 的卡片浮在 `surfaceContainer`（#242424）的抽屉上会像"挖了个洞"：
+     * 后层比前层亮，层次关系反了。按展开进度把这层底色提亮到与抽屉同色，
+     * 层次改由圆角 + 阴影承担，「挖洞感」与 `scaleY 0.97` 造成的上下色带同时消失。
+     * 浅色下两色同为 surface，lerp 前后一致，此系数无效。
+     */
+    const val DarkPageLift = 1f
     /** 允许轻微过冲，手感比临界阻尼更"活"。 */
     const val SettleDampingRatio = 0.9f
     const val SettleStiffness = 300f
@@ -148,10 +165,35 @@ fun ConversationSidePaneScaffold(
                 !offset.isNaN() && offset > 0.5f
             }
         }
+        // 展开进度（0 = 关闭，1 = 完全展开）。NaN / 未初始化时按 0 处理，避免首帧颜色跳变。
+        val paneProgress by remember(paneDragState, paneWidthPx) {
+            derivedStateOf {
+                val offset = paneDragState.offset
+                if (offset.isNaN() || paneWidthPx <= 0f) 0f else (offset / paneWidthPx).coerceIn(0f, 1f)
+            }
+        }
         val panelListState = rememberLazyListState()
         val scope = rememberCoroutineScope()
         val focusManager = LocalFocusManager.current
         val keyboard = LocalSoftwareKeyboardController.current
+        // 卡片底色插值的两个端点：合成期只读一次，避免拖拽时反复读取 ColorScheme。
+        val pageBaseColor = MiuixTheme.colorScheme.background
+        val pageLiftColor = conversationPaneContainerColor()
+        // 深色下卡片底色随展开提亮到与抽屉同色（详见 ConversationPaneMetrics.DarkPageLift）。
+        // 浅色下 background 与 surfaceContainer 同为浅色，lerp 结果不变，因此对浅色零影响；
+        // 关闭时 progress = 0，插值系数为 0，底色回到原值，纯黑模式的关闭态观感不变。
+        val pageBackgroundColor = lerp(
+            pageBaseColor,
+            pageLiftColor,
+            paneProgress * ConversationPaneMetrics.DarkPageLift,
+        )
+        // 卡片边缘的高光色。深色下用亮色 hairline，浅色下用暗色 hairline，
+        // 保证两种主题下这条描边都是"往看得见的方向偏一档"，而不是单纯变脏。
+        val pageEdgeColor = if (pageBaseColor.luminance() > 0.5f) {
+            MiuixTheme.colorScheme.outline
+        } else {
+            MiuixTheme.colorScheme.onSurface
+        }
         val closePane: () -> Unit = {
             currentHapticFeedback.performHapticFeedback(HapticFeedbackType.GestureEnd)
             focusManager.clearFocus()
@@ -251,7 +293,16 @@ fun ConversationSidePaneScaffold(
                     )
                     Box(
                         modifier = Modifier.fillMaxSize()
-                            .background(MiuixTheme.colorScheme.background),
+                            .background(pageBackgroundColor)
+                            // 卡片底色与抽屉同色后，圆角与缝隙都是"同色对同色"，
+                            // 边界只能靠这条 0.5dp hairline 表达。alpha 乘 progress：
+                            // 关闭时不画，避免屏幕四边露出线条。深色用亮色 hairline，
+                            // 因为深色下 shadowElevation 常被 ROM 削弱，描边是更可靠的层次来源。
+                            .border(
+                                width = 0.5.dp,
+                                color = pageEdgeColor.copy(alpha = 0.10f * paneProgress),
+                                shape = RoundedCornerShape(FOREGROUND_CORNER_DP),
+                            ),
                     ) {
                         Box(
                             modifier = Modifier

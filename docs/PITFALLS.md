@@ -132,6 +132,13 @@
 **根因**：`FOREGROUND_CORNER_DP = 36.dp` 全程恒定。关闭时卡片铺满整屏，这个圆角会作用在整屏四角上，超出物理屏圆角的部分就露出容器色。源码注释里已写明这点。
 **解法**：原版接受此行为。若要消除，把圆角改成随 `progress` 从 `0` 插值到 `36.dp`；但这偏离上游，需用户确认。
 
+### P074 · 深色下展开抽屉，右侧聊天卡片是纯黑，像在抽屉上"挖了个洞"
+**现象**：深色模式下抽屉展开，抽屉是 `#242424`，右侧聊天卡片是 `#000000`，后层比前层亮，层次关系反了；卡片上下还有 12dp 的同色带（即 P072）。
+**根因**：Miuix Spec2025 主题包里 `colorScheme.background` 本身就是纯黑 `#000000`，而抽屉用的 `conversationPaneContainerColor()` 取 `surfaceContainer`（`#242424`）。上游为此写了 `appPageBackgroundColor()`（`lerp(surface, surfaceContainer, 0.72f)` → `#1A1A1A`）来避免纯黑当页面底色，**但工作区这份仓库没有这个函数**，直接用了 `background`。
+**解法**：在 `ConversationSidePaneScaffold` 里按展开进度把卡片底色 lerp 到抽屉底色（`ConversationPaneMetrics.DarkPageLift = 1f`），关闭时系数归 0 保持原底色。卡片与抽屉同色后层次只能靠圆角 + 阴影 + 描边表达，因此同时把 `ForegroundShadow` 提到 `16.dp` 并加一条 `0.5dp` 的 hairline 描边（alpha 随 progress）。
+**副作用**：浅色下 `background` 与 `surfaceContainer` 都是浅色，lerp 结果不变，零影响；`lerp` 只作用在 `paneProgress` 上，拖拽时是重组这一层，不是全屏重绘。
+**未做**：上游那个 `appPageBackgroundColor()` 仍是缺失状态，若要让整个 App 深色底色都从 `#000000` 提到 `#1A1A1A`，需改 6 个文件（`AgentAppShell` / `AgentChatBody` / `MiuixScaffoldPage` / `TopBarBackdrop` / `AgentBrowserScreen` / 本文件），属于另一项独立改动。
+
 ---
 
 ## 文档 / 图谱
