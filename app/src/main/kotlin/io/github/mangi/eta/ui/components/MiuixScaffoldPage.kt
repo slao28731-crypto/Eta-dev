@@ -46,6 +46,7 @@ fun MiuixScaffoldPage(
 
         Scaffold(
             modifier = modifier.fillMaxSize(),
+            containerColor = appPageBackgroundColor(),
             topBar = {
                 TopBarBackdrop(backdrop) {
                     // 页面自带主视觉（如角色详情）时用紧凑标题，避免大标题与主视觉重复。
@@ -119,6 +120,7 @@ fun MiuixScaffold(
 
         Scaffold(
             modifier = modifier.fillMaxSize(),
+            containerColor = appPageBackgroundColor(),
             topBar = {
                 TopBarBackdrop(backdrop) {
                     AdaptiveTopAppBar(

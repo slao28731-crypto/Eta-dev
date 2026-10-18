@@ -113,6 +113,17 @@ private object ConversationPanelMetrics {
 internal val LocalPageBackgroundColor = compositionLocalOf<Color?> { null }
 
 /**
+ * 页面底色：优先取侧栏下传的当前底色，没有则回落主题的 `background`。
+ *
+ * 顶栏、底栏、聊天区底色都必须走这里，否则会出现"中间 #242424、上下纯黑"的割裂。
+ * Miuix 的 `Scaffold` 默认 `containerColor`、`surface` 在深色 Spec2025 下是纯黑，
+ * 直接用它会让顶栏和底栏比页面中间明显更黑。
+ */
+@Composable
+internal fun appPageBackgroundColor(): Color =
+    LocalPageBackgroundColor.current ?: MiuixTheme.colorScheme.background
+
+/**
  * 侧栏与外层推移容器共用的背景色。
  *
  * 深色下聊天区保持 surface（纯黑/近黑），侧栏沿用同一颜色会在展开后与聊天区融为一体；

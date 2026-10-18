@@ -309,7 +309,9 @@ private fun AgentChatScaffold(
     currentBrowserMessageId: String?,
     modifier: Modifier = Modifier,
 ) {
-    val surfaceColor = MiuixTheme.colorScheme.surface
+    // 页面底色与顶栏、底栏必须同源，否则深色下会出现"中间 #242424、上下纯黑"的割裂。
+    // Miuix 的 surface 在深色 Spec2025 下是纯黑，不能直接拿来当底。
+    val surfaceColor = appPageBackgroundColor()
     val frostEnabled = hasMessages && LocalBlurEnabled.current && isRuntimeShaderSupported()
     val messageBackdrop = rememberLayerBackdrop {
         // Backdrop 必须包含不透明底色，否则文字边缘模糊到透明区域时会出现黑边。
@@ -913,7 +915,7 @@ private fun AgentChatBottomBar(
         if (messageBackdrop != null) {
             val blurColors = BlurDefaults.blurColors(
                 blendColors = listOf(
-                    BlendColorEntry(MiuixTheme.colorScheme.surface.copy(alpha = 0.72f))
+                    BlendColorEntry(surfaceColor.copy(alpha = 0.72f))
                 ),
             )
             Box(
@@ -950,7 +952,7 @@ private fun AgentChatBottomBar(
                         Brush.verticalGradient(
                             colors = listOf(
                                 Color.Transparent,
-                                MiuixTheme.colorScheme.surface,
+                                surfaceColor,
                             ),
                         )
                     ),
@@ -959,7 +961,7 @@ private fun AgentChatBottomBar(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(MiuixTheme.colorScheme.surface)
+                .background(surfaceColor)
                 .navigationBarsPadding()
                 .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
         ) {

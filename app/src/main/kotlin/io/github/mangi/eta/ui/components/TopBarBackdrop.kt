@@ -18,12 +18,12 @@ import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.progressiveTextureBlur
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.blur.textureBlur
-import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
 internal fun rememberTopBarBackdrop(): LayerBackdrop? {
     if (!LocalBlurEnabled.current || !isRuntimeShaderSupported()) return null
-    val surfaceColor = MiuixTheme.colorScheme.surface
+    // 模糊背板的底色必须与页面底色一致，否则模糊区会比页面其他部分更黑，形成横向色带。
+    val surfaceColor = appPageBackgroundColor()
     return rememberLayerBackdrop {
         drawRect(surfaceColor)
         drawContent()
@@ -35,7 +35,7 @@ internal fun TopBarBackdrop(
     backdrop: LayerBackdrop?,
     content: @Composable () -> Unit,
 ) {
-    val surfaceColor = MiuixTheme.colorScheme.surface
+    val surfaceColor = appPageBackgroundColor()
     val modifier = when {
         backdrop == null -> Modifier.background(surfaceColor)
         LocalTopBarBlurStyle.current == AppearanceTopBarBlurStyle.PROGRESSIVE -> {
@@ -72,7 +72,7 @@ internal fun Modifier.captureForTopBar(backdrop: LayerBackdrop?): Modifier =
 
 @Composable
 internal fun topBarContainerColor(backdrop: LayerBackdrop?): Color =
-    if (backdrop == null) MiuixTheme.colorScheme.surface else Color.Transparent
+    if (backdrop == null) appPageBackgroundColor() else Color.Transparent
 
 private const val TopBarBlurRadius = 25f
 private const val TopBarSurfaceAlpha = 0.8f

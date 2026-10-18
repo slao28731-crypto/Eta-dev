@@ -145,6 +145,19 @@
 **副作用**：浅色下 `background` 与 `surfaceContainer` 都是浅色，lerp 结果不变，零影响；非侧栏路由 `LocalPageBackgroundColor` 为 `null`，回落主题默认值，行为与改动前一致。
 **未做**：上游 `appPageBackgroundColor()` 仍是缺失状态，若要让整个 App 深色底色都从 `#000000` 提到 `#1A1A1A`，需改 6 个文件，属于另一项独立改动。
 
+### P075 · 抽屉修好后，卡片顶栏和底栏仍是纯黑，与中间区域的 #242424 割裂
+**现象**：侧栏展开时，卡片中间是 `#242424`（已修好），但顶部工具栏和底部输入区仍是 `#000000`，形成上下两条黑带。
+**根因**：各层底色来源不统一。
+- `Scaffold` 的 `containerColor` 走 `background`
+- 顶栏 `TopBarBackdrop` / `topBarContainerColor` 走 `MiuixTheme.colorScheme.surface`
+- 底栏 `AgentChatBottomBar` 的三个背景（模糊背板、渐隐、实底）也走 `surface`
+- 聊天区 `surfaceColor` 也走 `surface`
+
+深色 Spec2025 下 `surface` 与 `background` 都是纯黑，所以只要有一处没换，就会出现割裂。
+**解法**：在 `ConversationPanePanel.kt` 定义统一入口 `appPageBackgroundColor()`（优先侧栏下传色，否则回落 `background`），然后把上述**全部**改为调用它：`AgentAppShell.Scaffold.containerColor`、`TopBarBackdrop`（两处）、`topBarContainerColor`、`AgentChatBody.surfaceColor` 及其派生的 4 处、`MiuixScaffoldPage` 的两个 `Scaffold`。
+**排查方法**：截图按 y 轴逐带取主色。中间 `#242424`、上下 `#000000` 就是来源不统一。
+**教训**：改"页面底色"这类全局值，必须把所有绘制底色的入口列全，漏一处就是一条黑边。逐个 grep `colorScheme.surface` / `colorScheme.background` / `containerColor` 才可靠。
+
 ---
 
 ## 文档 / 图谱
