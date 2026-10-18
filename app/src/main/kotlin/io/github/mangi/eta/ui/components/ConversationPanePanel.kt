@@ -127,27 +127,26 @@ internal fun appPageBackgroundColor(): Color =
 /**
  * 卡片 / 气泡底色。
  *
- * 页面底色被抬到 `#1A1A1A` 之后，若卡片继续用 `surfaceContainerHigh`（`#242424`）或
- * `surface`（纯黑），深色下会出现两种翻车：
- * - 用纯黑：卡片比底色更暗，像在页面上挖洞（层次反了）。
- * - 用 `#242424`：只比底色亮 4%，边界勉强可见，一屏卡片会糊成一片。
+ * 深色下统一给到 #343434：页面底色被抬到 #1A1A1A 之后，若卡片继续用纯黑会像在页面上挖洞，
+ * 继续用 #242424 又只亮 4%、一屏卡片糊成一片。10.5% 的亮度差是实测出来的舒服档。
  *
- * 这里直接给到 `#343434`，与 `#1A1A1A` 保持 10.5% 的亮度差 —— 实测这是暗色界面里
- * 气泡既不消失、也不像贴纸的那一档。
+ * **浅色下必须原样回落，不能统一**。上游各卡片本来各用不同层级：
+ * - 聊天气泡 `surfaceContainerHigh`（浅灰）
+ * - 建议卡片 / 思考卡 / 运行记录 `surface`（白）
+ * - 底部输入框 `surfaceContainer`（#E8E8E8）
  *
- * 浅色下不做任何偏移，直接回落 `surfaceContainerHigh`，保证浅色观感保持原样。
+ * 早期版本把它们统一成 `surfaceContainerHigh`，结果浅色下建议卡片全变成浅灰、
+ * 与页面分不开。所以这里保留 `fallback` 参数让调用方各自指定浅色回落的层级，
+ * 深色才收口到同一个值。
+ *
  * 纯黑模式下同样回落，因为那时用户要的就是纯黑满屏。
  */
 @Composable
-internal fun appCardSurfaceColor(): Color {
+internal fun appCardSurfaceColor(fallback: Color): Color {
     val colors = MiuixTheme.colorScheme
     val appearance = LocalAppearanceSettings.current
     val isDark = colors.background.luminance() < 0.5f
-    return if (isDark && !appearance.pureBlackEnabled) {
-        DarkCardSurface
-    } else {
-        colors.surfaceContainerHigh
-    }
+    return if (isDark && !appearance.pureBlackEnabled) DarkCardSurface else fallback
 }
 
 /**

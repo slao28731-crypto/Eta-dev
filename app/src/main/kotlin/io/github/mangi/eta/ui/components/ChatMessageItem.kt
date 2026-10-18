@@ -373,8 +373,8 @@ private fun UserMessageBubble(
                             Modifier.background(overlayBubbleColor, RoundedCornerShape(10.dp))
                         } else {
                             Modifier.squircleSurface(
-                                // 走统一卡片色：深色 #343434，浅色与纯黑模式回落主题值。
-                                color = appCardSurfaceColor(),
+                                // 浅色回落 surfaceContainerHigh（上游原样）；深色收口到 #343434。
+                                color = appCardSurfaceColor(MiuixTheme.colorScheme.surfaceContainerHigh),
                                 topStart = 20.dp,
                                 topEnd = 20.dp,
                                 // 描边只支持统一圆角，编辑态收起气泡尾角，让描边与填充贴合。
@@ -855,8 +855,8 @@ internal fun ThinkingRow(
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 4.dp)
             .squircleSurface(
-                // 走统一卡片色：思考卡片与气泡、建议卡片同阶梯。
-                color = appCardSurfaceColor(),
+                // 浅色回落 surface（上游原样，白色思考卡）；深色收口到 #343434。
+                color = appCardSurfaceColor(MiuixTheme.colorScheme.surface),
                 cornerRadius = ChatCardCorner,
             )
             .squircleBorder(
@@ -1031,8 +1031,8 @@ private fun RunTraceRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // 走统一卡片色：与聊天气泡、建议卡片同一阶梯，避免深色下这张卡单独变成纯黑。
-    val cardColor = appCardSurfaceColor()
+    // 浅色回落 surface（上游原样，白色运行记录卡）；深色收口到 #343434。
+    val cardColor = appCardSurfaceColor(MiuixTheme.colorScheme.surface)
     Row(
         modifier = modifier
             .fillMaxWidth()

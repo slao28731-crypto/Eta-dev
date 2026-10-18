@@ -1144,8 +1144,8 @@ private fun SuggestionCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // 走统一卡片色：深色 #343434 / 浅色与纯黑模式回落主题 surfaceContainerHigh。
-    val cardColor = appCardSurfaceColor()
+    // 浅色回落 surface（上游原样，白底卡片）；深色收口到 #343434。
+    val cardColor = appCardSurfaceColor(MiuixTheme.colorScheme.surface)
     Column(
         modifier = modifier
             .squircleSurface(color = cardColor, cornerRadius = 16.dp)

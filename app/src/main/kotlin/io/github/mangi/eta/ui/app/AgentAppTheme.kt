@@ -74,6 +74,9 @@ fun AgentAppTheme(
             // 深色默认调色板：页面底色抬到 #1A1A1A（见 DarkPageBackground）。
             // 只改 background —— surface 在终端、浏览器、Provider 等页面被当作页面底使用，
             // 直接改它会把那些页面整片刷成卡片色。卡片色由 appCardSurfaceColor() 单独提供。
+            //
+            // surfaceContainer 一个像素都不动：底部输入框用它，浅色下是 #E8E8E8、
+            // 深色下是 Miuix 原值，用户明确要求输入框保持上游原样，不参与卡片提亮。
             else -> colors.copy(
                 background = DarkPageBackground,
             )
