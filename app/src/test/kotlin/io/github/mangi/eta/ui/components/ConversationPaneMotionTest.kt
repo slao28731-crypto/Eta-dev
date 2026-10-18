@@ -1,5 +1,6 @@
 package io.github.mangi.eta.ui.components
 
+import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -59,5 +60,59 @@ class ConversationPaneMotionTest {
         val wide = conversationPaneMotion(170f, 340f)
         assertEquals(compact.progress, wide.progress, 0f)
         assertEquals(compact.panelOffset / 280f, wide.panelOffset / 340f, 0.00001f)
+    }
+
+    @Test
+    fun foregroundScalesDownAndCornerStaysConstantWithProgress() {
+        val closed = conversationPaneMotion(0f, 320f)
+        assertEquals(1f, closed.foregroundScale, 0f)
+        assertEquals(1f, closed.foregroundScaleY, 0f)
+        assertEquals(FOREGROUND_CORNER_DP.value, closed.foregroundCorner.value, 0.0001f)
+
+        val open = conversationPaneMotion(320f, 320f)
+        assertEquals(FOREGROUND_MIN_SCALE, open.foregroundScale, 0f)
+        assertEquals(FOREGROUND_MIN_VERTICAL_SCALE, open.foregroundScaleY, 0f)
+        assertEquals(FOREGROUND_CORNER_DP.value, open.foregroundCorner.value, 0.0001f)
+
+        // 纵向缩放比横向小，卡片看起来更高。
+        assertTrue(open.foregroundScaleY > open.foregroundScale)
+    }
+
+    @Test
+    fun cornerIsIdenticalAtEveryProgressStep() {
+        // 圆角全程恒定，不随转场进度变化。
+        for (step in 0..10) {
+            val motion = conversationPaneMotion(320f * step / 10f, 320f)
+            assertEquals(FOREGROUND_CORNER_DP.value, motion.foregroundCorner.value, 0.0001f)
+        }
+    }
+
+    @Test
+    fun foregroundShiftIsZeroWhenClosedAndFullWhenOpen() {
+        // 关闭时必须为 0，否则屏幕左侧会露出抽屉底下的缝隙。
+        assertEquals(0f, conversationPaneMotion(0f, 320f).foregroundShift.value, 0f)
+        assertEquals(
+            FOREGROUND_SHIFT_DP,
+            conversationPaneMotion(320f, 320f).foregroundShift.value,
+            0.0001f,
+        )
+        assertEquals(
+            FOREGROUND_SHIFT_DP / 2f,
+            conversationPaneMotion(160f, 320f).foregroundShift.value,
+            0.0001f,
+        )
+    }
+
+    @Test
+    fun scalesStayMonotonicAcrossProgress() {
+        var previousScale = 1f
+        var previousScaleY = 1f
+        for (step in 0..10) {
+            val motion = conversationPaneMotion(320f * step / 10f, 320f)
+            assertTrue(motion.foregroundScale <= previousScale)
+            assertTrue(motion.foregroundScaleY <= previousScaleY)
+            previousScale = motion.foregroundScale
+            previousScaleY = motion.foregroundScaleY
+        }
     }
 }

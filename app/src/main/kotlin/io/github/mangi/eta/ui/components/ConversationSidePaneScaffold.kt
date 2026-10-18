@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -29,9 +30,8 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.focusProperties
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
@@ -56,11 +56,20 @@ import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 private object ConversationPaneMetrics {
-    val PaneMaxWidth = 340.dp
-    val PaneWidthFraction = 0.84f
-    const val ChatScrimAlpha = 0.16f
-    const val SettleDampingRatio = 1f
-    const val SettleStiffness = 146f
+    /**
+     * 展开时的侧栏宽度，不超过屏幕宽度的 [PaneWidthFraction]。
+     *
+     * 取 326.dp / 0.76f 是为了与上游原版对齐：这样在 393dp 屏上抽屉宽 298.7dp，
+     * 前景卡片左边缘落在 304.7dp，右侧能露出 88.3dp 的聊天页左边缘，叠层感才成立。
+     * 之前用的 340.dp / 0.84f 只露出 56.9dp，视觉上接近一条缝。
+     */
+    val PaneTargetWidth = 326.dp
+    val PaneWidthFraction = 0.76f
+    /** 前景卡片展开时的阴影，用边缘层次代替黑色遮罩。 */
+    val ForegroundShadow = 12.dp
+    /** 允许轻微过冲，手感比临界阻尼更"活"。 */
+    const val SettleDampingRatio = 0.9f
+    const val SettleStiffness = 300f
     const val SettleVisibilityThresholdPx = 0.5f
     const val SettlePositionThresholdFraction = 0.5f
 }
@@ -91,7 +100,7 @@ fun ConversationSidePaneScaffold(
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val density = LocalDensity.current
-        val paneWidth = minOf(maxWidth * ConversationPaneMetrics.PaneWidthFraction, ConversationPaneMetrics.PaneMaxWidth)
+        val paneWidth = minOf(maxWidth * ConversationPaneMetrics.PaneWidthFraction, ConversationPaneMetrics.PaneTargetWidth)
         val paneWidthPx = with(density) { paneWidth.toPx() }
         val anchors = remember(paneWidthPx) {
             DraggableAnchors {
@@ -242,11 +251,6 @@ fun ConversationSidePaneScaffold(
                     )
                     Box(
                         modifier = Modifier.fillMaxSize()
-                            .drawWithContent {
-                                drawContent()
-                                val progress = conversationPaneMotion(paneDragState.offset, paneWidthPx).progress
-                                drawRect(Color.Black, alpha = ConversationPaneMetrics.ChatScrimAlpha * progress)
-                            }
                             .background(MiuixTheme.colorScheme.background),
                     ) {
                         Box(
@@ -281,9 +285,28 @@ fun ConversationSidePaneScaffold(
                 layout(constraints.maxWidth, constraints.maxHeight) {
                     // 物理左侧是会话区；不随 RTL 改变两个槽位的关系。
                     val motion = conversationPaneMotion(paneDragState.offset, paneWidthPx)
-                    val offset = motion.foregroundOffset.roundToInt()
-                    panel.placeWithLayer(offset - panel.width, 0)
-                    page.placeWithLayer(offset, 0)
+                    val displacement = motion.foregroundOffset.roundToInt()
+                    // 抽屉贴住位移位置不动。
+                    panel.placeWithLayer(displacement - panel.width, 0)
+                    // 卡片在位移基础上再右移一点，在抽屉与卡片之间留出间隙。
+                    val shiftPx = with(density) { motion.foregroundShift.toPx() }
+                    val pageOffset = displacement + shiftPx.roundToInt()
+                    // 前景页随展开缩小并加圆角，形成"退到下一层"的层次感。
+                    // 缩放锚在左侧中位，右边缘才会随位移一起收进去。
+                    // 不用黑色遮罩压暗（用户要求保持白底），改用卡片阴影做层次。
+                    val cornerPx = with(density) { motion.foregroundCorner.toPx() }
+                    page.placeWithLayer(
+                        x = pageOffset,
+                        y = 0,
+                    ) {
+                        scaleX = motion.foregroundScale
+                        scaleY = motion.foregroundScaleY
+                        transformOrigin = TransformOrigin(0f, 0.5f)
+                        // 圆角始终 > 0（关闭时即系统屏幕圆角），不需要条件分支。
+                        shape = RoundedCornerShape(cornerPx)
+                        clip = true
+                        shadowElevation = with(density) { ConversationPaneMetrics.ForegroundShadow.toPx() }
+                    }
                 }
             }
         }
