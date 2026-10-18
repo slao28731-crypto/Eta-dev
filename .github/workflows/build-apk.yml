@@ -1,0 +1,118 @@
+name: Build APK (self-signed)
+
+# 二改构建流水线：不依赖任何仓库 Secret，自动生成签名证书。
+# 产出的 release APK 可用于真机安装与覆盖升级（同一证书长期有效）。
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: assembleDebug + assembleRelease
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: 配置 JDK 25
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: 配置 Gradle
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6
+        with:
+          cache-provider: basic
+
+      - name: 配置 Android SDK 工具
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+        with:
+          packages: ""
+          log-accepted-android-sdk-licenses: false
+
+      - name: 接受 SDK 许可
+        shell: bash
+        run: yes | sdkmanager --licenses > /dev/null 2>&1 || true
+
+      - name: 安装 Android SDK 37
+        shell: bash
+        run: sdkmanager --channel=3 "platforms;android-37.0"
+
+      - name: 安装 NDK 30.0.16248370
+        shell: bash
+        run: sdkmanager "ndk;30.0.16248370"
+
+      - name: 生成签名证书
+        shell: bash
+        env:
+          KS_PASS: ${{ secrets.ETA_RELEASE_STORE_PASSWORD }}
+        run: |
+          # 仓库未配置 Secret 时使用固定口令；证书随 runner 临时生成，仅本次构建有效
+          STORE_PASS="${KS_PASS:-eta123456}"
+          keytool -genkeypair \
+            -keystore "$RUNNER_TEMP/eta-dev.jks" \
+            -storetype JKS \
+            -alias eta \
+            -keyalg RSA \
+            -keysize 4096 \
+            -validity 10950 \
+            -storepass "$STORE_PASS" \
+            -keypass "$STORE_PASS" \
+            -dname "CN=Eta Dev, OU=Modified, O=EtaDev, L=NA, S=NA, C=CN"
+          echo "STORE_PASS=$STORE_PASS" >> "$GITHUB_ENV"
+          echo "STORE_FILE=$RUNNER_TEMP/eta-dev.jks" >> "$GITHUB_ENV"
+
+      - name: 构建 APK
+        shell: bash
+        env:
+          ETA_RELEASE_STORE_FILE: ${{ runner.temp }}/eta-dev.jks
+          ETA_RELEASE_STORE_PASSWORD: ${{ env.STORE_PASS }}
+          ETA_RELEASE_KEY_ALIAS: eta
+          ETA_RELEASE_KEY_PASSWORD: ${{ env.STORE_PASS }}
+        run: |
+          ./gradlew --no-daemon --no-configuration-cache --stacktrace \
+            -Peta.buildMetadata=${GITHUB_SHA::7} \
+            :app:assembleDebug :app:assembleRelease
+
+      - name: 校验并重命名产物
+        id: apk
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          debug_apks=(app/build/outputs/apk/debug/*.apk)
+          release_apks=(app/build/outputs/apk/release/*.apk)
+          echo "debug count: ${#debug_apks[@]}"
+          echo "release count: ${#release_apks[@]}"
+          [[ ${#release_apks[@]} -ge 1 ]]
+
+          apksigner_path="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          "$apksigner_path" verify --print-certs "${release_apks[0]}" || true
+
+          mkdir -p "$RUNNER_TEMP/out"
+          for f in "${debug_apks[@]}"; do cp "$f" "$RUNNER_TEMP/out/${f##*/}"; done
+          for f in "${release_apks[@]}"; do cp "$f" "$RUNNER_TEMP/out/${f##*/}"; done
+          ls -lh "$RUNNER_TEMP/out"
+
+      - name: 上传 APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: eta-apk-${{ github.sha }}
+          path: ${{ runner.temp }}/out/*.apk
+          if-no-files-found: error
+          retention-days: 30
