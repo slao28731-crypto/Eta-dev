@@ -35,6 +35,9 @@ class ToolCatalogUiTest {
             deviceSensitiveActionTools = true,
             skillGitHubDiscovery = true,
             skillGitHubInstall = true,
+            // 与 AgentModelClient.toolsFor 的生产路径保持一致；否则 MCP 管理工具
+            // 因缺图标而漏检（iconForTool 对未知名字返回 Build）。
+            mcpManagement = true,
             memoryTools = true,
             capabilities = AgentToolCapabilities(rootAvailable = true, lsposedAvailable = true),
         )

@@ -101,6 +101,9 @@ class AgentToolRequirementsTest {
         terminalTools = true, browserTools = true, deviceDirectTools = true,
         deviceSensitiveReadTools = true, deviceSensitiveActionTools = true,
         skillGitHubDiscovery = true, skillGitHubInstall = true, memoryTools = true,
+        // 必须与生产路径一致（AgentModelClient.toolsFor 里是 true），
+        // 否则 everyRegisteredToolHasExactlyOneRequirement 会因为「注册了却没暴露」而失败。
+        mcpManagement = true,
         capabilities = AgentToolCapabilities(rootAvailable = root),
     )
 

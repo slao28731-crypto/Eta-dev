@@ -41,6 +41,8 @@ internal object AgentToolRequirements {
             "character_memory_get", "character_memory_write",
             "skills_list", "skills_read", "skills_read_resource", "skills_list_curated",
             "skills_inspect_github", "skills_install_from_github",
+            "mcp_list_servers", "mcp_add_server", "mcp_remove_server", "mcp_refresh_server",
+            "mcp_set_server_enabled", "mcp_set_tool_enabled",
         )
         register(
             RootRequirement.PARTIAL,

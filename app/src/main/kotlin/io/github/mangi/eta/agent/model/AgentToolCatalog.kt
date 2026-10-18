@@ -13,6 +13,7 @@ internal object AgentToolCatalog {
         deviceSensitiveActionTools: Boolean = false,
         skillGitHubDiscovery: Boolean = false,
         skillGitHubInstall: Boolean = false,
+        mcpManagement: Boolean = false,
         memoryTools: Boolean = false,
         memoryWritable: Boolean = true,
         capabilities: AgentToolCapabilities = AgentToolCapabilities(rootAvailable = true),
@@ -37,6 +38,7 @@ internal object AgentToolCatalog {
                 githubDiscovery = skillGitHubDiscovery,
                 githubInstall = skillGitHubInstall,
             )
+            if (mcpManagement) AgentMcpToolCatalog.appendTo(tools)
             if (memoryTools) AgentMemoryToolCatalog.appendTo(tools, writable = memoryWritable)
             if (terminalTools) {
                 AgentFileVisionToolCatalog.appendTo(tools)

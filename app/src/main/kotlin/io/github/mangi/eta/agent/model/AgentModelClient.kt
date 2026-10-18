@@ -149,6 +149,7 @@ internal object AgentModelClient {
                 deviceSensitiveActionTools = config.deviceSensitiveActionTools,
                 skillGitHubDiscovery = true,
                 skillGitHubInstall = true,
+                mcpManagement = true,
                 memoryTools = memoryContext.enabled,
                 memoryWritable = roleplayContext == null,
                 capabilities = capabilities,

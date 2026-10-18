@@ -71,7 +71,7 @@ internal class McpRunSnapshot(
                 server.activeTools.forEach { tool ->
                     if (projected.size >= MAX_RUN_TOOLS) return@forEach
                     projected += McpRunTool(
-                        modelName = modelToolName(server.id, tool.name),
+                        modelName = mcpModelToolName(server.id, tool.name),
                         server = server,
                         definition = tool,
                         bearerToken = bearerToken,
@@ -81,22 +81,33 @@ internal class McpRunSnapshot(
             return McpRunSnapshot(projected)
         }
 
-        private fun modelToolName(serverId: String, toolName: String): String {
-            val serverPart = serverId.filter(Char::isLetterOrDigit).take(8).ifBlank { "server" }
-            val normalized = toolName
-                .replace(Regex("[^A-Za-z0-9_-]"), "_")
-                .trim('_')
-                .take(30)
-                .ifBlank { "tool" }
-            val digest = MessageDigest.getInstance("SHA-256")
-                .digest("$serverId\u0000$toolName".toByteArray())
-                .take(4)
-                .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
-            return "mcp_${serverPart}_${normalized}_$digest"
-        }
-
         private const val MAX_RUN_TOOLS = 64
     }
+}
+
+/**
+ * MCP 工具在模型侧的最终名字。
+ *
+ * 唯一实现，供两处共用：
+ * - [McpRunSnapshot.load] 组装本轮工具目录时；
+ * - [io.github.mangi.eta.agent.tool.AgentLocalTools] 的 `mcp_add_server` / `mcp_list_servers`，
+ *   用来把「下一轮才会出现的名字」提前告诉模型。
+ *
+ * 一旦两处各写一份，任何一处改格式都会让模型照着错误的名字调用，而报错信息只会是
+ * UNKNOWN_TOOL，极难定位。所以这里必须保持单一定义。
+ */
+internal fun mcpModelToolName(serverId: String, toolName: String): String {
+    val serverPart = serverId.filter(Char::isLetterOrDigit).take(8).ifBlank { "server" }
+    val normalized = toolName
+        .replace(Regex("[^A-Za-z0-9_-]"), "_")
+        .trim('_')
+        .take(30)
+        .ifBlank { "tool" }
+    val digest = MessageDigest.getInstance("SHA-256")
+        .digest("$serverId\u0000$toolName".toByteArray())
+        .take(4)
+        .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+    return "mcp_${serverPart}_${normalized}_$digest"
 }
 
 internal class McpToolExecutor(

@@ -39,6 +39,13 @@ import io.github.mangi.eta.agent.skill.GitHubSkillInspection
 import io.github.mangi.eta.agent.skill.GitHubSkillRepository
 import io.github.mangi.eta.agent.skill.GitHubSkillSourceException
 import io.github.mangi.eta.agent.skill.PublicGitHubSkillSource
+import io.github.mangi.eta.agent.mcp.McpServerManager
+import io.github.mangi.eta.agent.mcp.mcpModelToolName
+import io.github.mangi.eta.agent.mcp.validateMcpEndpoint
+import io.github.mangi.eta.data.model.McpAuthorizationType
+import io.github.mangi.eta.data.model.McpProtocolMode
+import io.github.mangi.eta.data.model.McpServerSetting
+import io.github.mangi.eta.data.repository.McpServerRepository
 import io.github.mangi.eta.agent.terminal.TerminalExecutionContext
 import io.github.mangi.eta.agent.terminal.DetachedTaskSupervisor
 import io.github.mangi.eta.agent.terminal.LinuxEnvironmentPaths
@@ -227,6 +234,12 @@ internal class AgentLocalTools(
                 "skills_list_curated" -> textResult(skillsListCurated())
                 "skills_inspect_github" -> textResult(skillsInspectGitHub(args))
                 "skills_install_from_github" -> textResult(skillsInstallFromGitHub(args))
+                "mcp_list_servers" -> textResult(mcpListServers(args))
+                "mcp_add_server" -> textResult(mcpAddServer(args))
+                "mcp_remove_server" -> textResult(mcpRemoveServer(args))
+                "mcp_refresh_server" -> textResult(mcpRefreshServer(args))
+                "mcp_set_server_enabled" -> textResult(mcpSetServerEnabled(args))
+                "mcp_set_tool_enabled" -> textResult(mcpSetToolEnabled(args))
                 else -> textResult(
                     errorResult(
                         code = "UNKNOWN_TOOL",
@@ -919,6 +932,229 @@ internal class AgentLocalTools(
         }
     }
 
+    // ==================== MCP server management ====================
+
+    // 工具名的计算公式在 agent/mcp/McpRunContext.kt 里单一定义（mcpModelToolName），
+    // 这里只调用，不复制实现，避免两处格式漂移导致模型照着错误名字调用。
+
+    private fun mcpListServers(args: JSONObject): String {
+        val includeTools = args.optBoolean("includeTools", true)
+        val servers = runBlocking { McpServerRepository.servers() }
+        val items = JSONArray()
+        servers.forEach { server ->
+            val enabledCount = server.tools.count { it.name in server.enabledToolNames }
+            val entry = JSONObject()
+                .put("id", server.id)
+                .put("name", server.name)
+                .put("url", server.url)
+                .put("enabled", server.enabled)
+                .put("protocolMode", server.protocolMode)
+                .put("authorizationType", server.authorizationType)
+                .put("toolCount", server.tools.size)
+                .put("enabledToolCount", enabledCount)
+            if (includeTools) {
+                val tools = JSONArray()
+                server.tools.forEach { tool ->
+                    tools.put(
+                        JSONObject()
+                            .put("name", tool.name)
+                            .put("modelName", mcpModelToolName(server.id, tool.name))
+                            .put("enabled", tool.name in server.enabledToolNames)
+                            .put("readOnly", tool.readOnlyHint ?: JSONObject.NULL),
+                    )
+                }
+                entry.put("tools", tools)
+            }
+            items.put(entry)
+        }
+        return JSONObject()
+            .put("ok", true)
+            .put("count", servers.size)
+            .put("items", items)
+            .toString()
+    }
+
+    private fun mcpAddServer(args: JSONObject): String {
+        val name = args.optString("name").trim()
+        val rawUrl = args.optString("url").trim()
+        val token = args.optString("bearerToken").trim()
+        if (name.isBlank()) return errorResult("MISSING_PARAM", "缺少 name（服务器显示名）")
+        if (name.length > MAX_MCP_NAME_CHARS) {
+            return errorResult("INVALID_ARGUMENT", "name 超过 $MAX_MCP_NAME_CHARS 字符")
+        }
+        if (rawUrl.isBlank()) return errorResult("MISSING_PARAM", "缺少 url（MCP Streamable HTTP 端点）")
+
+        val endpoint = runCatching { validateMcpEndpoint(rawUrl) }.getOrElse {
+            return errorResult("INVALID_MCP_URL", it.message ?: "MCP 地址无效")
+        }
+        // 只认 http/https，其他 scheme 一律拒绝，避免把 file:// 之类传进 OkHttp。
+        if (endpoint.scheme != "http" && endpoint.scheme != "https") {
+            return errorResult("INVALID_MCP_URL", "MCP 地址只支持 http 或 https")
+        }
+
+        val existing = runBlocking { McpServerRepository.servers() }
+        // 用规范化后的 URL 比较：https://a.com/mcp 与 https://a.com/mcp/ 视为同一端点，
+        // 否则模型反复调用会堆出一串同地址的重复条目。
+        val normalizedTarget = endpoint.toString().trimEnd('/')
+        existing.firstOrNull { it.url.trim().trimEnd('/').equals(normalizedTarget, ignoreCase = true) }?.let {
+            return errorResult(
+                "MCP_SERVER_EXISTS",
+                "该地址已配置为「${it.name}」(id=${it.id})，无需重复添加；如需变更请先 mcp_remove_server",
+            )
+        }
+        if (existing.any { it.name.equals(name, ignoreCase = true) }) {
+            return errorResult("MCP_NAME_EXISTS", "已存在同名服务器「$name」，请换一个 name")
+        }
+
+        val draft = McpServerSetting(
+            id = "",
+            name = name,
+            url = endpoint.toString(),
+            enabled = true,
+            protocolMode = McpProtocolMode.AUTO,
+            authorizationType = if (token.isBlank()) {
+                McpAuthorizationType.NONE
+            } else {
+                McpAuthorizationType.BEARER
+            },
+        )
+        // 先连一次拿到工具清单：连不上就不落库，避免留下一个永远失败的条目。
+        // 这里单独捕获，因为连接失败是用户最常遇到的错误，返回 TOOL_ERROR 模型无法自我修正。
+        val discovered = runCatching {
+            McpServerManager.discover(
+                server = draft,
+                bearerToken = token.ifBlank { null },
+                enableAllDiscoveredTools = true,
+            )
+        }.getOrElse { failure ->
+            return errorResult(
+                "MCP_CONNECT_FAILED",
+                "连接 MCP 服务器失败，未保存：${failure.message ?: failure.javaClass.simpleName}",
+            )
+        }
+        if (discovered.tools.isEmpty()) {
+            return errorResult(
+                "MCP_NO_TOOLS",
+                "服务器已连通但未返回任何工具，未保存。请确认端点暴露了 MCP tools 能力",
+            )
+        }
+        val added = runBlocking { McpServerRepository.add(discovered, token) }
+
+        val tools = JSONArray()
+        added.activeTools.forEach { tool ->
+            tools.put(
+                JSONObject()
+                    .put("name", tool.name)
+                    .put("modelName", mcpModelToolName(added.id, tool.name)),
+            )
+        }
+        return JSONObject()
+            .put("ok", true)
+            .put("id", added.id)
+            .put("name", added.name)
+            .put("url", added.url)
+            .put("authorizationType", added.authorizationType)
+            .put("bearerToken", if (token.isBlank()) JSONObject.NULL else MASKED_TOKEN)
+            .put("toolCount", added.tools.size)
+            .put("enabledToolCount", added.activeTools.size)
+            .put("modelTools", tools)
+            .put("protocolVersion", added.lastProtocolVersion ?: JSONObject.NULL)
+            .put("nextTurnRequired", true)
+            .put(
+                "note",
+                "已保存并启用全部工具。MCP 工具从下一轮对话开始可用，" +
+                    "本轮拿不到这些工具；下一轮用 modelTools 里的 modelName 直接调用。",
+            )
+            .toString()
+    }
+
+    private fun mcpRemoveServer(args: JSONObject): String {
+        val serverId = args.optString("serverId").trim()
+        if (serverId.isBlank()) return errorResult("MISSING_PARAM", "缺少 serverId")
+        val server = runBlocking { McpServerRepository.serverById(serverId) }
+            ?: return errorResult("MCP_SERVER_NOT_FOUND", "未找到 MCP 服务器：$serverId")
+        runBlocking { McpServerRepository.delete(serverId) }
+        return JSONObject()
+            .put("ok", true)
+            .put("id", server.id)
+            .put("name", server.name)
+            .put("removedToolCount", server.tools.size)
+            .put("note", "已删除服务器及其密文凭据，其工具从下一轮起不再出现")
+            .toString()
+    }
+
+    private fun mcpRefreshServer(args: JSONObject): String {
+        val serverId = args.optString("serverId").trim()
+        if (serverId.isBlank()) return errorResult("MISSING_PARAM", "缺少 serverId")
+        val previous = runBlocking { McpServerRepository.serverById(serverId) }
+            ?: return errorResult("MCP_SERVER_NOT_FOUND", "未找到 MCP 服务器：$serverId")
+        // 重连保持「保留已启用项」语义：服务端新增的工具默认关闭，与设置页刷新一致。
+        // refresh 是 suspend 函数，工具执行路径是同步的，所以在这里桥接一次。
+        val refreshed = runBlocking { McpServerManager.refresh(serverId) }
+        val previousNames = previous.tools.mapTo(mutableSetOf()) { it.name }
+        val currentNames = refreshed.tools.mapTo(mutableSetOf()) { it.name }
+        val addedTools = JSONArray()
+        refreshed.tools.filter { it.name !in previousNames }.forEach { addedTools.put(it.name) }
+        val droppedTools = JSONArray()
+        previous.tools.filter { it.name !in currentNames }.forEach { droppedTools.put(it.name) }
+        return JSONObject()
+            .put("ok", true)
+            .put("id", refreshed.id)
+            .put("name", refreshed.name)
+            .put("toolCount", refreshed.tools.size)
+            .put("enabledToolCount", refreshed.activeTools.size)
+            .put("addedTools", addedTools)
+            .put("droppedTools", droppedTools)
+            .put("protocolVersion", refreshed.lastProtocolVersion ?: JSONObject.NULL)
+            .put("nextTurnRequired", true)
+            .toString()
+    }
+
+    private fun mcpSetServerEnabled(args: JSONObject): String {
+        val serverId = args.optString("serverId").trim()
+        if (serverId.isBlank()) return errorResult("MISSING_PARAM", "缺少 serverId")
+        if (!args.has("enabled")) return errorResult("MISSING_PARAM", "缺少 enabled")
+        val enabled = args.getBoolean("enabled")
+        val server = runBlocking { McpServerRepository.serverById(serverId) }
+            ?: return errorResult("MCP_SERVER_NOT_FOUND", "未找到 MCP 服务器：$serverId")
+        runBlocking { McpServerRepository.update(server.copy(enabled = enabled)) }
+        return JSONObject()
+            .put("ok", true)
+            .put("id", server.id)
+            .put("name", server.name)
+            .put("enabled", enabled)
+            .put("nextTurnRequired", true)
+            .toString()
+    }
+
+    private fun mcpSetToolEnabled(args: JSONObject): String {
+        val serverId = args.optString("serverId").trim()
+        val toolName = args.optString("toolName").trim()
+        if (serverId.isBlank()) return errorResult("MISSING_PARAM", "缺少 serverId")
+        if (toolName.isBlank()) return errorResult("MISSING_PARAM", "缺少 toolName")
+        if (!args.has("enabled")) return errorResult("MISSING_PARAM", "缺少 enabled")
+        val enabled = args.getBoolean("enabled")
+        val server = runBlocking { McpServerRepository.serverById(serverId) }
+            ?: return errorResult("MCP_SERVER_NOT_FOUND", "未找到 MCP 服务器：$serverId")
+        if (server.tools.none { it.name == toolName }) {
+            val available = JSONArray()
+            server.tools.take(20).forEach { available.put(it.name) }
+            return errorResult(
+                "MCP_TOOL_NOT_FOUND",
+                "服务器「${server.name}」没有名为 $toolName 的工具；现有工具：$available",
+            )
+        }
+        runBlocking { McpServerRepository.setToolEnabled(serverId, toolName, enabled) }
+        return JSONObject()
+            .put("ok", true)
+            .put("id", server.id)
+            .put("name", server.name)
+            .put("toolName", toolName)
+            .put("enabled", enabled)
+            .put("nextTurnRequired", true)
+            .toString()
+    }
+
     // ==================== Skills tools ====================
 
     private fun skillsList(args: JSONObject): String {
@@ -1411,6 +1647,12 @@ internal class AgentLocalTools(
     )
 
     private companion object {
+        /** name 上限与 MCP Schema 的 maxLength 保持一致。 */
+        const val MAX_MCP_NAME_CHARS = 200
+
+        /** 返回给模型时对 token 的唯一显示形式；真实 token 只存在于 Keystore。 */
+        const val MASKED_TOKEN = "••••••••"
+
         val DEVICE_DIRECT_TOOL_NAMES = io.github.mangi.eta.agent.model.AgentPhoneToolCatalog.direct + setOf(
             "set_alarm",
             "set_timer",
