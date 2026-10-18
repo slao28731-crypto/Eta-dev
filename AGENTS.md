@@ -215,31 +215,64 @@ Tool Calling 与推理内容的字段也不一样。**不要把三条路径抽�
 - `AgentRuntimeWireTest.kt`（4 个符号）
 - 无符号产出：`build.gradle.kts`、`settings.gradle.kts`、`AppearanceThemeLocals.kt`、`EtaFonts.kt`
 
-## 6. 收工协议（每个 Agent 必做）
+## 6. 收工协议（强制，逐项打勾，不可跳过）
 
-完成任何任务后，按序更新，**不要跳过**：
+任务做完**不代表结束**。在 `git commit` 之前，逐项确认下面每一行。任一项该做没做，这个任务就是**未完成**。
 
-1. **`docs/PROGRESS.md`** — 更新「已完成」「进行中」「待办」
-2. **`docs/PITFALLS.md`** — 踩了新坑就追加一条（格式：现象 → 根因 → 解法）
-3. **`docs/MODULES.md`** — 模块职责变了就改对应条目
-4. **`docs/CONVENTIONS.md`** — 构建/发版/依赖变了就改
-5. **`docs/adr/NNN-标题.md`** — 做了架构选择就新建一条
-6. `graphify update .` — 刷新图谱（如果改了代码）
+```
+□ 1. docs/STATE.md 的「现在做到哪」和「下一步」已更新
+      └─ 这一步最关键。不动它，下一个 Agent 就是瞎子。
+□ 2. docs/PROGRESS.md「已完成」加了一条（带日期）
+□ 3. docs/PITFALLS.md：本轮踩坑已追加（没踩坑就跳过，但必须确认“真的没踩”）
+□ 4. docs/MODULES.md：模块职责/依赖/契约变了才改
+□ 5. docs/CONVENTIONS.md：构建/发版/依赖版本变了才改
+□ 6. docs/adr/NNN-标题.md：做了架构选择就新建（没做就跳过）
+□ 7. 跑了 graphify update .（改过 app/src/ 下任何文件就必须跑）
+□ 8. git status 确认没有意外文件（.keys/ graphify-out/ 不能进）
+```
 
-**写什么**：写「为什么这样做」「改了会踩什么坑」「谁跟谁强耦合」。
-**不写什么**：不写「这个文件实现了 XXX 功能」这种从文件名就能猜到的废话，也不贴代码。
+### 判断标准（一句话）
+
+> **如果明天换一个完全不认识这个项目的 Agent 来接手，他读你写的更新，能不能直接接着干？**
+>
+> 能 → 才算收工。不能 → 你只是写完了代码，没完成交接。
+
+### 必须写的内容
+
+| 写什么 | 例子 |
+|---|---|
+| **为什么**这么改 | 「改成轮询是因为 WebSocket 在 MIUI 后台被断开」 |
+| 改了会**踩什么坑** | 「这里必须加 try，ROM 改了方法签名会抛 NoSuchMethod」 |
+| **谁跟谁强耦合** | 「改了 AgentRuntimeWire 的字段必须同步改 hook 侧解析」 |
+| **还没验证的部分** | 「编译过了，但真机 Xposed 加载没测」 |
+
+### 绝对不要写
+
+- ❌ 「本文件实现了 XXX 功能」— 从文件名就能猜到
+- ❌ 贴大段代码 — 代码在 git 里，不要复制
+- ❌ 「已完成优化」— 什么优化？提升了多少？不写清楚等于没说
+- ❌ 「TODO: 后续完善」— 要么写清楚是什么事，要么不要写
+
+### 为什么这套靠自觉而不是硬卡
+
+文档需要判断力（什么值得记、什么不值得），CI 强制检查只能查「文件有没有改动」，查不出「写得有没有用」。
+硬卡的结果是 Agent 敷衍着写两句糊弄过去，比不写更糟。所以这套是**契约 + 判断标准**，不是脚本。
+
+只有一件事是硬性的：`graphify update .`。它零成本、无判断需求，改代码就必须跑。已在 pre-commit hook 里自动执行。
 
 ## 7. 文档索引
 
-| 文件 | 内容 |
-|---|---|
-| `docs/ARCHITECTURE.md` | 分层、数据流、进程模型、启动流程 |
-| `docs/MODULES.md` | 逐模块职责、依赖、对外契约 |
-| `docs/PITFALLS.md` | 踩坑清单（ROM、签名、so、Room、混淆） |
-| `docs/PROGRESS.md` | 当前进度与待办 |
-| `docs/CONVENTIONS.md` | 代码风格、构建、发版、依赖管理 |
-| `docs/adr/` | 架构决策记录 |
-| `graphify-out/GRAPH_REPORT.md` | 自动生成的图谱报告（不含业务语义） |
+| 文件 | 内容 | 什么时候读 |
+|---|---|---|
+| `docs/START_HERE.md` | 新 Agent 三步对齐 | **第一个读** |
+| `docs/STATE.md` | 当前状态卡（做到哪、下一步） | 第二个读 |
+| `docs/ARCHITECTURE.md` | 分层、数据流、进程模型、启动流程 | 理解结构 |
+| `docs/MODULES.md` | 逐模块职责、依赖、对外契约 | 改某模块前 |
+| `docs/PITFALLS.md` | 踩坑清单（现象 → 根因 → 解法） | 遇到问题先查 |
+| `docs/PROGRESS.md` | 完整进度流水与待办 | 查历史 |
+| `docs/CONVENTIONS.md` | 代码风格、构建、发版、依赖管理 | 写代码/发版前 |
+| `docs/adr/` | 架构决策记录 | 想质疑「为什么这么选」 |
+| `graphify-out/GRAPH_REPORT.md` | 自动生成的图谱报告 | 快速扫架构 |
 
 ## 8. 上游与本仓库的关系
 

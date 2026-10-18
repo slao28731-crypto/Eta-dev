@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# 提交前自动刷新代码图谱，避免 graph.json 与源码脱节。
+# 只在暂存区出现 Kotlin/Java 源码时才跑，纯文档提交直接跳过。
+set -u
+
+changed=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(kt|kts|java)$' || true)
+
+if [ -z "$changed" ]; then
+  exit 0
+fi
+
+if ! command -v graphify >/dev/null 2>&1; then
+  echo "[pre-commit] graphify 未安装，跳过图谱刷新"
+  exit 0
+fi
+
+echo "[pre-commit] 检测到源码变动，刷新图谱..."
+if graphify update . >/dev/null 2>&1; then
+  echo "[pre-commit] 图谱已刷新（graphify-out/ 不入库，无需 add）"
+else
+  echo "[pre-commit] 图谱刷新失败，不阻断提交（请手动跑 graphify update .）"
+fi
+
+exit 0

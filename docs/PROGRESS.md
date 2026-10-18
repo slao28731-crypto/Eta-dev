@@ -23,6 +23,7 @@
 - [x] **2026-10-18** 安装 graphify skill 到 `.agents/skills/graphify/`
 - [x] **2026-10-18** 编写交接文档：`AGENTS.md` + `docs/ARCHITECTURE.md`、`PITFALLS.md`、`MODULES.md`、`CONVENTIONS.md`、`PROGRESS.md`
 - [x] **2026-10-18** 固定签名证书：生成 `eta-release.jks`（RSA 4096 / SHA384withRSA / 有效期至 2056-10-10），四个 Secret 已写入仓库，workflow 改为从 Secret 还原，支持覆盖升级
+- [x] **2026-10-18** 文档体系补强：新增 `docs/START_HERE.md`（新 Agent 三步对齐）、`docs/STATE.md`（一页状态卡）；AGENTS.md 收工协议改为 8 项强制检查清单；新增 pre-commit hook 自动刷新图谱 + `scripts/install-hooks.sh` 一键安装
 
 ## 进行中
 

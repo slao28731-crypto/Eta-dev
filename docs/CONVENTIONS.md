@@ -149,12 +149,24 @@ push main / 手动触发
 ## 11. 文档维护
 
 - `AGENTS.md` 是唯一入口，新 agent 必读
+- `docs/START_HERE.md` 新 agent 三步对齐（读文档 → 确认图谱 → 确认工作区）
+- `docs/STATE.md` 一页状态卡，**收工必须更新「下一步」段**
 - 每次任务后更新 `docs/PROGRESS.md`
 - 踩坑记 `docs/PITFALLS.md`（现象 → 根因 → 解法）
 - 架构决策记 `docs/adr/NNN-标题.md`
-- 改完代码跑 `graphify update .`
+- 改完代码跑 `graphify update .`（已由 pre-commit hook 自动执行）
 
-## 12. 工具链速查
+## 12. Git hooks
+
+```bash
+# 新机器 clone 后跑一次
+bash scripts/install-hooks.sh
+```
+
+`pre-commit` 会在提交涉及 `.kt`/`.kts`/`.java` 时自动跑 `graphify update .`，
+避免图谱与源码脱节。纯文档提交跳过。失败不阻断提交。
+
+## 13. 工具链速查
 
 | 工具 | 用途 | 命令 |
 |---|---|---|
