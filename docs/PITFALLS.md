@@ -197,6 +197,28 @@ index 3 -> onStopKimiWeb()   // 条件项，仅 canStopKimiWeb 时存在
 **注意**：Material 图标（`Icons.Rounded.*`）自带主题色不用 tint；换成 `painterResource` 后 **tint 必须手写**，否则颜色就固定成 XML 里的值了。
 **教训**：任何外部 SVG 进项目，先查 `fill` 是写死还是 `currentColor`。写死的一律改成占位色 + Compose tint，这是唯一能让图标同时适配浅色/深色的做法。
 
+### P080 · 新装的 MCP 服务工具全是关的，加完等于没加
+**现象**：Agent 调 `mcp_add_server` 成功返回，服务器也进了设置页，但下一轮它的工具一个都没出现在模型目录里。
+**根因**：`McpServerManager.discover()` 里 `enabledToolNames = server.enabledToolNames.intersect(availableNames)`。新建时 `draft.enabledToolNames` 是默认空集，空集取交集还是空集，而 `activeTools` 的定义是 `tools.filter { it.name in enabledToolNames }`，于是工具数量恒为 0。
+**为什么设置页没暴露这个问题**：设置页新建后会让用户进详情页逐项手动打开，用户没开就是「还没配置完」，符合预期。Agent 路径没有这个中间步骤，空集就成了死路。
+**解法**：`discover()` 加 `enableAllDiscoveredTools: Boolean = false`，只有 Agent 路径传 `true`，此时直接用 `availableNames` 全量启用。设置页不传，行为零变化。
+**教训**：**「函数默认参数」+「集合交集」是一个静默归零的组合**。凡是 `A.intersect(B)` 的写法，都要问一句「A 为空时业务上合理吗」。这里不合理，但因为 UI 有个手动补救步骤，所以从没暴露过。
+
+### P081 · 工具名带 `mcp_` 前缀，会被脱敏机制连带吞掉返回结果
+**现象**：Agent 加完 MCP 服务器后，用户换一个会话问它「刚才加了什么」，它答不上来，也不知道下一轮该调什么工具名。
+**根因**：`AgentSensitiveToolPolicy.isSensitive()` 第一条是 `toolName.startsWith("mcp_")`，本意是保护**远端 MCP 工具**的返回数据。新加的管理工具叫 `mcp_add_server` 等，正好命中同一前缀，于是被当成敏感工具：
+
+```kotlin
+// AgentConversationCodec.redactSensitiveToolData()
+copy.put("content", "[敏感工具参数与原始结果仅供当前回合使用，未写入持久会话]")
+call.optJSONObject("function")?.put("arguments", JSONObject().put("redacted", true).toString())
+```
+
+结果写进 transcript 时被整条替换，**连 `modelTools`（下一轮实际可用的工具名清单）也一起消失**。当前 run 内的 `messages` 是完整的，所以当轮不影响；跨会话/重载历史才炸。
+**解法**：加 `mcpManagementTools` 精确白名单，命中则直接返回 `false`。远端 MCP 工具名形如 `mcp_<serverId前8位>_<工具名>_<sha256前8位>`，不会与这 6 个固定名字冲突。
+**教训**：**前缀匹配是廉价的分类手段，也是廉价的误伤来源**。给新工具起名时先 grep 一遍有没有基于前缀的通用判定（脱敏、图标、日志、权限），命中就要显式豁免，不能指望「反正名字不一样」。
+**验证方式**：`McpManagementToolCatalogTest.management tools stay out of the sensitive policy` 锁死这一点，同时断言远端 MCP 工具仍然是敏感的。
+
 ---
 
 ## 文档 / 图谱

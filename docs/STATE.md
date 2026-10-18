@@ -12,7 +12,33 @@
 | 签名 | ✅ 固定 keystore（至 2056-10-10），支持覆盖升级 |
 | 代码图谱 | ✅ Graphify 0.9.92，11899 节点 / 436 社区 |
 | 交接文档 | ✅ AGENTS.md + docs 六件套 + 3 条 ADR |
-| **二改功能开发** | ✅ **已验收两轮**：抽屉/配色轮 + 顶栏图标轮 |
+| **二改功能开发** | ✅ **已验收三轮**：抽屉/配色轮 + 顶栏图标轮 + MCP 自助管理轮 |
+
+## MCP 自助管理（新增能力，已验收）
+
+Agent 自己就能添加 MCP 服务器，不需要用户进设置页。6 个工具全部常开（`AgentModelClient` 里硬编码 `mcpManagement = true`）。
+
+| 工具 | 作用 |
+|---|---|
+| `mcp_list_servers` | 列出已配置服务器 + 每个服务器下的工具名与 `modelName` |
+| `mcp_add_server` | 添加服务器、连一次拿工具清单、**默认启用全部工具**、落库 + Keystore 存 token |
+| `mcp_remove_server` | 删除服务器及凭据 |
+| `mcp_refresh_server` | 重连重读工具，返回 `addedTools` / `droppedTools` |
+| `mcp_set_server_enabled` | 整体开关 |
+| `mcp_set_tool_enabled` | 单个工具开关 |
+
+### 三个必须记住的设计约束
+
+1. **新服务器默认全启用**：`McpServerManager.discover(enableAllDiscoveredTools = true)` 只由 Agent 路径传 `true`。不传的话 `enabledToolNames` 是空集，`activeTools` 就是 0 个，功能等于没做。设置页仍走 `false`，行为完全不变。
+2. **工具名公式只允许一份**：`mcpModelToolName()` 定义在 `agent/mcp/McpRunContext.kt`，`AgentLocalTools` 只调用不复制。名字格式是 `mcp_<serverId前8位>_<工具名>_<sha256前8位>`，两处漂移会直接导致 `UNKNOWN_TOOL`。
+3. **管理工具必须排除出脱敏**：`AgentSensitiveToolPolicy` 里 `mcp_` 前缀会触发脱敏，结果被替换成「敏感工具未写入持久会话」，连带 `modelTools` 一起丢。已在 `mcpManagementTools` 精确白名单里豁免，远端 MCP 工具仍照旧敏感。
+
+### 已知限制
+
+- 加完当轮用不了：`McpRunSnapshot` 在 run 开始时一次性加载，工具下一轮才出现。
+- token 会以明文进对话历史（工具参数的既有行为，改不了），只在返回值里打码。
+
+详细契约见 `McpManagementToolCatalogTest`（4 个用例锁死开关/必填项/上限/脱敏豁免）。
 
 ## 顶栏图标（用户已定稿）
 
@@ -45,9 +71,9 @@
 
 ## 下一步（最重要）
 
-**两轮二改已全部验收通过（2026-10-18 / 10-19）。当前无进行中任务，等下一个需求。**
+**三轮二改已全部验收通过（2026-10-19）。当前无进行中任务，等下一个需求。**
 
-第二轮验收（顶栏图标）用户原话：「测试好了没问题，验收。」
+第三轮验收（MCP 自助管理）用户原话：「测试成功，验收通过。」
 
 ### 已完成并验收的完整清单
 
@@ -58,6 +84,7 @@
 | 3 | 浅色各卡片回落各自上游层级、输入卡恢复 `#E8E8E8` | `24e30f7` |
 | 4 | 抽屉卡片底部灰带修复（阴影退回 12dp、hairline 仅深色） | `38fe2a3` |
 | 5 | 顶栏会话历史换两线图标 + 新建对话提到顶栏（更多左侧，用户 SVG） | `4f2b4aa` |
+| 6 | **Agent 自助管理 MCP**：6 个工具（list/add/remove/refresh/开关机/单工具开关） | `4378e83` |
 
 ### 后续可做的二改方向（尚未确认）
 
@@ -65,6 +92,8 @@
 - 加工具（新的设备 API / MCP 适配）
 - 换 Provider（接入自建模型网关）
 - 改 hook 目标（适配新 ROM 版本 / 新增厂商助手）
+- MCP 支持 stdio 传输（当前只有 Streamable HTTP）
+- MCP 支持 OAuth 动态客户端注册（当前只有 Bearer Token）
 
 ### 若要继续微调，改哪里
 
@@ -79,6 +108,11 @@
 | 会话历史图标线形 | `ic_conversation_history.xml` 的两条 path | `app/src/main/res/drawable/` |
 | 新建对话图标 | `ic_new_conversation.xml` | 同上 |
 | 顶栏图标顺序/增删 | `AgentTopBar` 的 `actions` 块 | `ui/app/AgentAppShell.kt` |
+| MCP 工具是否常开 | `mcpManagement` 参数（生产路径写死 `true`） | `agent/model/AgentModelClient.kt` |
+| MCP 管理工具 Schema | `AgentMcpToolCatalog` | `agent/model/AgentMcpToolCatalog.kt` |
+| MCP 工具名格式 | `mcpModelToolName()`（**唯一实现，别复制**） | `agent/mcp/McpRunContext.kt` |
+| 新 MCP 默认启用策略 | `enableAllDiscoveredTools` 参数 | `agent/mcp/McpServerManager.kt` |
+| MCP 脱敏豁免名单 | `mcpManagementTools` | `agent/model/AgentSensitiveToolPolicy.kt` |
 
 原型：`demo/dark-palette.html`（深色调色台）、`demo/topbar-v2.html`（会话历史图标调参）、`demo/topbar-icons.html`（顶栏图标总览）。
 
@@ -173,4 +207,4 @@ git push origin clean:main
 
 ---
 
-_最后更新：2026-10-19 · 第二轮验收通过（顶栏图标：会话历史两线图标 + 新建对话提到顶栏，commit 4f2b4aa）_
+_最后更新：2026-10-19 · 第三轮验收通过（Agent 自助管理 MCP：6 个工具，commit 4378e83）_

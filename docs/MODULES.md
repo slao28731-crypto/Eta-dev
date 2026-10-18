@@ -71,6 +71,21 @@
 
 **只支持 Streamable HTTP + Bearer Token，不支持 stdio**。工具逐项启用，与本机工具共同参与任务。
 
+**Agent 可以自己管理 MCP 服务器**（用户只需说一句话）。工具实现分两层：
+
+| 层 | 位置 | 职责 |
+|---|---|---|
+| Schema | `agent/model/AgentMcpToolCatalog.kt` | 6 个管理工具的 JSON Schema，由 `mcpManagement` 开关控制 |
+| 执行 | `agent/tool/AgentLocalTools.kt` 的 `mcp*` 函数 | 校验 → `discover()` 探测 → `McpServerRepository` 落库 |
+
+三条硬约束（违反就会静默失效）：
+
+1. **新服务器默认全启用**：`McpServerManager.discover(enableAllDiscoveredTools = true)` 只由 Agent 路径传。默认 `false` 时 `enabledToolNames` 是空集，`activeTools` 恒为 0。
+2. **工具名公式单一定义**：`mcpModelToolName()` 在 `McpRunContext.kt`，`AgentLocalTools` 只调用不复制。格式 `mcp_<serverId前8位>_<工具名>_<sha256前8位>`。
+3. **管理工具需豁免脱敏**：`AgentSensitiveToolPolicy.mcpManagementTools` 白名单，否则结果被 transcript 替换，`modelTools` 一起丢。
+
+工具在 run 开始时一次性加载（`McpRunSnapshot.load()`），**加完下一轮才可用**。
+
 ### agent/browser/ — 内嵌浏览器
 
 WebView 加载 JS 页面、读正文、操作 DOM、截图。用户可接管同一会话。

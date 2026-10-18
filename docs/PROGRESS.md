@@ -38,6 +38,8 @@
 - [x] **2026-10-19** 顶栏图标改版（第二轮，用户真机验收通过）：① 会话历史图标从 `Icons.AutoMirrored.Outlined.ShortText`（三条线）换成自定义 `ic_conversation_history.xml`（两条圆头横线，上长下短：上线 `3.5→19.0`、下线 `3.5→12.3`、gap 9dp、线粗 2.4、`strokeLineCap=round`），参数由用户在 `demo/topbar-v2.html` 调定；② 新建对话从溢出菜单提到顶栏，插在「更多」左侧，图标用用户指定 SVG 转 `ic_new_conversation.xml`（`fill` 从固定深蓝 `#060A26` 改为 `#FF000000`，由 Compose `tint` 按主题着色，否则深色下不可见）；③ 菜单删除「新建对话」，索引同步从 `0..4` 改为 `0..3`
 - [x] **2026-10-19** 建 `demo/topbar-icons.html`：顶栏全部图标总览（实际布局模拟 + 图标清单 + 菜单内图标 + 圆润候选 + 间距尺），可点选标记
 - [x] **2026-10-19** 建 `demo/topbar-v2.html`：会话历史图标调参台，四滑块（间距/下线长度/线粗/总长）+ 六预设 + 24px 真实尺寸预览 + 一键复制参数
+- [x] **2026-10-19** Agent 自助管理 MCP（第三轮，用户真机验收通过）：新增 6 个工具 `mcp_list_servers` / `mcp_add_server` / `mcp_remove_server` / `mcp_refresh_server` / `mcp_set_server_enabled` / `mcp_set_tool_enabled`，全部常开（`mcpManagement = true`）。改动 11 个文件：新建 `AgentMcpToolCatalog`（Schema）与 `McpManagementToolCatalogTest`（契约测试）；`AgentToolCatalog` 加开关；`AgentModelClient` 打开开关；`AgentLocalTools` 6 个实现；`AgentToolRequirements` 注册；`McpServerManager` 加 `enableAllDiscoveredTools`；`McpRunContext` 把工具名公式提取为唯一实现；`AgentSensitiveToolPolicy` 豁免管理工具脱敏；两个既有测试补开关
+- [x] **2026-10-19** 排掉 MCP 功能的两个隐藏坑：① `discover()` 的 `intersect` 会让新服务器的 `enabledToolNames` 为空集，`activeTools` 变成 0 个，加完等于白加 —— 用 `enableAllDiscoveredTools` 只在 Agent 路径启用全部工具；② `AgentSensitiveToolPolicy` 的 `mcp_` 前缀把管理工具也判成敏感，结果被 transcript 替换成「敏感工具未写入持久会话」，连带 `modelTools`（下一轮要调的工具名）一起丢 —— 加 `mcpManagementTools` 精确白名单豁免，远端 MCP 工具仍照旧敏感
 
 ## 进行中
 
