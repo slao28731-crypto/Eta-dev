@@ -59,6 +59,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
+import io.github.mangi.eta.ui.app.LocalAppearanceSettings
 import io.github.mangi.eta.ui.model.ConversationPaneUiState
 import io.github.mangi.eta.ui.model.ConversationSummaryUi
 import top.yukonga.miuix.kmp.basic.DropdownDefaults
@@ -124,16 +125,74 @@ internal fun appPageBackgroundColor(): Color =
     LocalPageBackgroundColor.current ?: MiuixTheme.colorScheme.background
 
 /**
+ * 卡片 / 气泡底色。
+ *
+ * 页面底色被抬到 `#1A1A1A` 之后，若卡片继续用 `surfaceContainerHigh`（`#242424`）或
+ * `surface`（纯黑），深色下会出现两种翻车：
+ * - 用纯黑：卡片比底色更暗，像在页面上挖洞（层次反了）。
+ * - 用 `#242424`：只比底色亮 4%，边界勉强可见，一屏卡片会糊成一片。
+ *
+ * 这里直接给到 `#343434`，与 `#1A1A1A` 保持 10.5% 的亮度差 —— 实测这是暗色界面里
+ * 气泡既不消失、也不像贴纸的那一档。
+ *
+ * 浅色下不做任何偏移，直接回落 `surfaceContainerHigh`，保证浅色观感保持原样。
+ * 纯黑模式下同样回落，因为那时用户要的就是纯黑满屏。
+ */
+@Composable
+internal fun appCardSurfaceColor(): Color {
+    val colors = MiuixTheme.colorScheme
+    val appearance = LocalAppearanceSettings.current
+    val isDark = colors.background.luminance() < 0.5f
+    return if (isDark && !appearance.pureBlackEnabled) {
+        DarkCardSurface
+    } else {
+        colors.surfaceContainerHigh
+    }
+}
+
+/**
+ * 深色模式下的页面底色，见 [appPageBackgroundColor]。
+ *
+ * 常量定义在组件包，主题侧（`ui.app.AgentAppTheme`）反向引用它。
+ * 反向依赖的方向是刻意的：主题只负责把值塞进 ColorScheme，配色语义归组件层所有，
+ * 这样页面色、卡片色、抽屉色三个常量始终待在同一处，改一个能立刻看到另外两个。
+ */
+internal val DarkPageBackground = Color(0xFF1A1A1A)
+
+/**
+ * 深色模式下的卡片 / 气泡底色，见 [appCardSurfaceColor]。
+ *
+ * 与 [DarkPageBackground] 的亮度差是刻意留的 10.5%：实测低于 3% 气泡边界基本不可见，
+ * 6%~12% 是暗色界面里最舒服的一档。
+ */
+internal val DarkCardSurface = Color(0xFF343434)
+
+/**
  * 侧栏与外层推移容器共用的背景色。
  *
- * 深色下聊天区保持 surface（纯黑/近黑），侧栏沿用同一颜色会在展开后与聊天区融为一体；
- * 抬高一档到 surfaceContainer，保证两侧始终可分。浅色维持 surface，避免改变现有观感。
+ * 叠层的方向是「后暗前亮」：抽屉在最底层，聊天卡片压在它上面。
+ * 页面底色被抬到 #1A1A1A 之后，抽屉必须比它更暗才有退后感，
+ * 因此深色下压到 #0F0F0F（亮度 5.9%），与页面（10.2%）、卡片（20.4%）
+ * 刚好形成三级台阶。浅色下沿用 `surface`，不改变现有观感。
  */
 @Composable
 internal fun conversationPaneContainerColor(): Color {
     val colors = MiuixTheme.colorScheme
-    return if (colors.background.luminance() > 0.5f) colors.surface else colors.surfaceContainer
+    val appearance = LocalAppearanceSettings.current
+    return when {
+        colors.background.luminance() > 0.5f -> colors.surface
+        appearance.pureBlackEnabled -> colors.surfaceContainer
+        else -> DarkPaneContainer
+    }
 }
+
+/**
+ * 深色模式下抽屉（最底层）的底色，见 [conversationPaneContainerColor]。
+ *
+ * 必须比 [DarkPageBackground] 更暗：抽屉是后层，后层比前层亮会让层次倒挂，
+ * 也就是之前那个"在抽屉上挖了个洞"的观感。
+ */
+internal val DarkPaneContainer = Color(0xFF0F0F0F)
 
 @Composable
 internal fun ConversationPanePanel(

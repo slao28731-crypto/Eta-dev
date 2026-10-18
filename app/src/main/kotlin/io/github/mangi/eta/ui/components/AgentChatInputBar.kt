@@ -242,7 +242,8 @@ internal fun AgentChatInputBar(
                         ),
                     )
                     .squircleSurface(
-                        color = MiuixTheme.colorScheme.surfaceContainer,
+                        // 输入框同样走统一卡片色：深色 #343434，与气泡、建议卡片一致。
+                        color = appCardSurfaceColor(),
                         cornerRadius = 20.dp,
                     )
                     .squircleBorder(

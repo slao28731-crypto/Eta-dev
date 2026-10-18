@@ -79,12 +79,15 @@ private object ConversationPaneMetrics {
     /**
      * 深色下页面底色向抽屉底色提亮的比例。
      *
-     * 纯黑 `background` 的卡片浮在 `surfaceContainer`（#242424）的抽屉上会像"挖了个洞"：
-     * 后层比前层亮，层次关系反了。按展开进度把这层底色提亮到与抽屉同色，
-     * 层次改由圆角 + 阴影承担，「挖洞感」与 `scaleY 0.97` 造成的上下色带同时消失。
-     * 浅色下两色同为 surface，lerp 前后一致，此系数无效。
+     * 已停用（0f）。这段插值原本是为了解决"纯黑卡片浮在 #242424 抽屉上像挖了个洞"：
+     * 把卡片提亮到与抽屉同色，层次改由圆角 + 阴影承担。
+     *
+     * 现在页面底色在主题层被统一成 #1A1A1A，抽屉反过来压暗到 #0F0F0F，
+     * 层次从"后亮前暗"纠正成"后暗前亮"，挖洞问题从根上消失了。
+     * 此时若继续插值，展开时页面会从 #1A1A1A 漂到 #242424，
+     * 用户选定的底色在开合过程中自己变，所以关掉。
      */
-    const val DarkPageLift = 1f
+    const val DarkPageLift = 0f
     /** 允许轻微过冲，手感比临界阻尼更"活"。 */
     const val SettleDampingRatio = 0.9f
     const val SettleStiffness = 300f

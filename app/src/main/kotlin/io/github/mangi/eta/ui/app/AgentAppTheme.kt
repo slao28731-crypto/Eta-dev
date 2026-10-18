@@ -12,6 +12,7 @@ import io.github.mangi.eta.data.model.AppearanceAccentColor
 import io.github.mangi.eta.data.model.AppearancePaletteStyle
 import io.github.mangi.eta.data.model.AppearanceSettings
 import io.github.mangi.eta.data.model.AppearanceThemeMode
+import io.github.mangi.eta.ui.components.DarkPageBackground
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeColorSpec
@@ -62,14 +63,20 @@ fun AgentAppTheme(
         )
     }
     val colors = controller.currentColors()
-    val themedColors = remember(colors, isDark, appearance.monetEnabled, appearance.pureBlackEnabled) {
-        if (appearance.monetEnabled && appearance.pureBlackEnabled && isDark) {
-            colors.copy(
+    val themedColors = remember(colors, isDark, appearance.pureBlackEnabled) {
+        when {
+            !isDark -> colors
+            // 纯黑模式是用户的显式选择，任何情况下都优先于下面的深色调色板。
+            appearance.pureBlackEnabled -> colors.copy(
                 background = Color.Black,
                 surface = Color.Black,
             )
-        } else {
-            colors
+            // 深色默认调色板：页面底色抬到 #1A1A1A（见 DarkPageBackground）。
+            // 只改 background —— surface 在终端、浏览器、Provider 等页面被当作页面底使用，
+            // 直接改它会把那些页面整片刷成卡片色。卡片色由 appCardSurfaceColor() 单独提供。
+            else -> colors.copy(
+                background = DarkPageBackground,
+            )
         }
     }
 

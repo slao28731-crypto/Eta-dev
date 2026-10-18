@@ -326,6 +326,8 @@ private fun ToolActivityDetail(
                     modifier = Modifier
                         .fillMaxWidth()
                         .squircleSurface(
+                            // 工具结果块从属于上方卡片，保持 surfaceContainer 的次级层次，
+                            // 不跟着主卡片提亮，否则内外两层会糊成一块。
                             color = MiuixTheme.colorScheme.surfaceContainer,
                             cornerRadius = 10.dp,
                         )
