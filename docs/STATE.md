@@ -61,8 +61,20 @@ MCP 只支持 Streamable HTTP，不支持 stdio
 远端分支:  main
 推送命令:  git push origin clean:main     ← 注意分支名映射，不能只写 git push
 仓库地址:  https://github.com/slao28731-crypto/Eta-dev
-最新提交:  236723c (ci: use fixed release keystore from secrets for stable signing)
+最新提交:  见 git log --oneline -1（本文不写死，避免过期）
 ```
+
+## 还原点
+
+| 类型 | 位置 | 用途 |
+|---|---|---|
+| 基线 tag | `v0.0.1-baseline` | 干净起点：上游 3.3.1 + graphify + 交接文档 + 固定签名 |
+| 提交历史 | `git log --oneline` | 每个功能一个还原点 |
+| App 数据备份 | `/sdcard/eta-backup/<时间戳>/` | `bash scripts/backup-app-data.sh` 生成 |
+
+**回滚规则见 `docs/USER_RULES.md` 规则三**：代码随便回，App 数据改了就回不去，数据库结构只能升不能降。
+
+**数据库当前版本 `22`**（`data/db/EtaDatabase.kt`）。改它之前必须先备份。
 
 ---
 
