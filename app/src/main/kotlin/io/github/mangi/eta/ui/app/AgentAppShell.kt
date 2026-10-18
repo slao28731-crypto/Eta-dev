@@ -18,9 +18,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ShortText
 import androidx.compose.material.icons.outlined.MoreHoriz
-import androidx.compose.material.icons.rounded.AddComment
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Terminal
@@ -209,9 +207,12 @@ private fun AgentTopBar(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onOpenConversationPane) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Outlined.ShortText,
+                        // 两条圆头横线，上长下短。尺寸与线形由 res/drawable/ic_conversation_history.xml
+                        // 定义（用户在 demo/topbar-v2.html 定的参数：gap 9dp / 线粗 2.4）。
+                        painter = painterResource(R.drawable.ic_conversation_history),
                         modifier = Modifier.size(24.dp),
                         contentDescription = stringResource(R.string.action_conversation_history),
+                        tint = MiuixTheme.colorScheme.onSurface,
                     )
                 }
                 // 角色对话的身份标识放在顶栏左侧，点按进入角色详情；普通对话保持空标题。
@@ -226,8 +227,17 @@ private fun AgentTopBar(
     val actions: @Composable RowScope.() -> Unit = {
         if (isHome) {
             SpeechAutoReadToggle()
+            // 新建对话从溢出菜单提到顶栏，插在「更多」左侧：这是首页最高频的操作之一，
+            // 藏在二级菜单里要多点一次。图标用用户指定的 SVG（res/drawable/ic_new_conversation.xml）。
+            IconButton(onClick = onNewConversation) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_new_conversation),
+                    modifier = Modifier.size(24.dp),
+                    contentDescription = stringResource(R.string.action_new_conversation),
+                    tint = MiuixTheme.colorScheme.onSurface,
+                )
+            }
             TopBarOverflowMenu(
-                onNewConversation = onNewConversation,
                 onOpenTerminal = onOpenTerminal,
                 onLaunchKimiWeb = onLaunchKimiWeb,
                 kimiWebLabel = kimiWebLabel,
@@ -269,7 +279,6 @@ private val TopBarMenuIconSize = 20.dp
  */
 @Composable
 private fun TopBarOverflowMenu(
-    onNewConversation: () -> Unit,
     onOpenTerminal: () -> Unit,
     onLaunchKimiWeb: () -> Unit,
     kimiWebLabel: String,
@@ -292,13 +301,12 @@ private fun TopBarOverflowMenu(
             alignment = PopupPositionProvider.Align.End,
             onDismissRequest = { showMenu = false },
         ) {
-            val newConversationText = stringResource(R.string.action_new_conversation)
             val openTerminalText = stringResource(R.string.action_open_terminal)
             val launchKimiWebText = kimiWebLabel
             val stopKimiWebText = stringResource(R.string.capability_kimi_stop)
             val openBrowserText = stringResource(R.string.action_open_browser)
+            // 顺序即索引，onSelectedIndexChange 按此分派；新建对话已提到顶栏，不在此列。
             val menuItems = remember(
-                newConversationText,
                 openTerminalText,
                 launchKimiWebText,
                 openBrowserText,
@@ -306,16 +314,6 @@ private fun TopBarOverflowMenu(
                 canStopKimiWeb,
             ) {
                 listOf(
-                    DropdownItem(
-                        text = newConversationText,
-                        icon = { modifier ->
-                            Icon(
-                                imageVector = Icons.Rounded.AddComment,
-                                contentDescription = null,
-                                modifier = modifier.size(TopBarMenuIconSize),
-                            )
-                        },
-                    ),
                     DropdownItem(
                         text = openTerminalText,
                         icon = { modifier ->
@@ -372,12 +370,13 @@ private fun TopBarOverflowMenu(
                         index = index,
                         onSelectedIndexChange = {
                             showMenu = false
+                            // 索引与上面 menuItems 的顺序一一对应：
+                            // 0 终端 / 1 Kimi Web / 2 浏览器 / 3 停止 Kimi（条件项）
                             when (index) {
-                                0 -> onNewConversation()
-                                1 -> onOpenTerminal()
-                                2 -> onLaunchKimiWeb()
-                                3 -> onOpenBrowser()
-                                4 -> onStopKimiWeb()
+                                0 -> onOpenTerminal()
+                                1 -> onLaunchKimiWeb()
+                                2 -> onOpenBrowser()
+                                3 -> onStopKimiWeb()
                             }
                         },
                     )

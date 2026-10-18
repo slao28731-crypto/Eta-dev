@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Eta 顶栏图标改版预览</title>
+<style>
+:root{
+  --page:#FFFFFF; --text:#1A1A1A; --dim:#8A8A8A; --line:#E4E4E4;
+  --card:#FFFFFF; --cardBd:#E8E8E8; --accent:#3C7EF0; --hover:rgba(0,0,0,.06);
+}
+.dark{
+  --page:#1A1A1A; --text:#F2F2F2; --dim:#8E8E8E; --line:#333333;
+  --card:#343434; --cardBd:#454545; --accent:#5B96F7; --hover:rgba(255,255,255,.08);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{
+  margin:0;padding:12px 12px 44px;background:var(--page);color:var(--text);
+  font-family:-apple-system,"HarmonyOS Sans","PingFang SC","Noto Sans SC",system-ui,sans-serif;
+  transition:background .2s,color .2s;
+}
+
+.bar{
+  position:sticky;top:0;z-index:10;display:flex;gap:8px;margin:-12px -12px 14px;
+  padding:10px 12px;background:var(--page);border-bottom:1px solid var(--line);
+}
+.bar button{
+  flex:1;padding:10px;border-radius:11px;border:1px solid var(--line);
+  background:var(--card);color:var(--text);font-size:12.5px;font-family:inherit;cursor:pointer;
+}
+.bar button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+
+h2{font-size:13.5px;margin:22px 2px 10px;font-weight:600}
+h2 .sub{font-size:10.5px;font-weight:400;color:var(--dim);margin-left:7px}
+h2:first-of-type{margin-top:4px}
+
+/* ===== 顶栏 ===== */
+.topbar{
+  display:flex;align-items:center;justify-content:space-between;
+  background:var(--page);border:1px solid var(--line);border-radius:15px;
+  padding:5px 7px;min-height:54px;position:relative;
+}
+.side{display:flex;align-items:center;gap:2px}
+.ibtn{
+  width:42px;height:42px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;flex:none;position:relative;
+}
+.ibtn:hover{background:var(--hover)}
+.ibtn svg{width:24px;height:24px;stroke:var(--text);fill:none;
+  stroke-linecap:round;stroke-linejoin:round}
+.ibtn.s22 svg{width:22px;height:22px}
+.tagline{
+  position:absolute;left:50%;transform:translateX(-50%);bottom:-17px;
+  font-size:9.5px;color:var(--dim);white-space:nowrap;font-variant-numeric:tabular-nums;
+}
+.topbar-wrap{padding-bottom:20px}
+
+/* ===== 大图对比 ===== */
+.compare{display:flex;gap:10px;margin-bottom:6px}
+.cbox{
+  flex:1;background:var(--card);border:1px solid var(--cardBd);border-radius:14px;
+  padding:12px 10px;text-align:center;
+}
+.cbox .lab{font-size:10.5px;color:var(--dim);margin-bottom:9px;line-height:1.5}
+.cbox .big{height:74px;display:flex;align-items:center;justify-content:center}
+.cbox .big svg{width:72px;height:72px;stroke:var(--text);fill:none;
+  stroke-linecap:round;stroke-linejoin:round}
+.cbox .small{height:36px;display:flex;align-items:center;justify-content:center;
+  border-top:1px dashed var(--line);margin-top:9px;padding-top:9px}
+.cbox .small svg{width:24px;height:24px;stroke:var(--text);fill:none;
+  stroke-linecap:round;stroke-linejoin:round}
+.cbox .sm-lab{font-size:9px;color:var(--dim);margin-top:5px}
+
+/* ===== 参数面板 ===== */
+.panel{background:var(--card);border:1px solid var(--cardBd);border-radius:14px;padding:13px 13px 6px}
+.row{margin-bottom:13px}
+.row .hd{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+.row .hd span{font-size:11.5px;color:var(--text)}
+.row .hd b{font-size:11px;color:var(--dim);font-weight:500;font-variant-numeric:tabular-nums}
+input[type=range]{
+  width:100%;height:22px;-webkit-appearance:none;background:transparent;margin:0;
+}
+input[type=range]::-webkit-slider-runnable-track{
+  height:5px;border-radius:3px;background:var(--line);
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:20px;height:20px;border-radius:50%;
+  background:var(--accent);border:3px solid var(--card);margin-top:-7.5px;
+  box-shadow:0 1px 4px rgba(0,0,0,.25);
+}
+input[type=range]::-moz-range-track{height:5px;border-radius:3px;background:var(--line)}
+input[type=range]::-moz-range-thumb{width:17px;height:17px;border-radius:50%;
+  background:var(--accent);border:3px solid var(--card)}
+
+/* ===== 预设 ===== */
+.presets{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:4px}
+.pre{
+  background:var(--card);border:1px solid var(--cardBd);border-radius:12px;
+  padding:9px 6px 7px;text-align:center;cursor:pointer;
+}
+.pre.on{border-color:var(--accent);box-shadow:0 0 0 2px rgba(60,126,240,.2)}
+.pre svg{width:34px;height:34px;stroke:var(--text);fill:none;
+  stroke-linecap:round;stroke-linejoin:round;margin-bottom:5px}
+.pre .nm{font-size:10px;color:var(--dim);line-height:1.4}
+.pre .nm b{display:block;color:var(--text);font-size:10.5px;font-weight:600;margin-bottom:1px}
+
+/* ===== 变化说明 ===== */
+.diff{background:var(--card);border:1px solid var(--cardBd);border-radius:14px;
+  padding:12px 13px;font-size:11.5px;line-height:1.85;color:var(--dim)}
+.diff b{color:var(--text);font-weight:600}
+.diff .arw{color:var(--accent);font-weight:700;padding:0 3px}
+.diff code{background:rgba(128,128,128,.14);padding:1px 5px;border-radius:4px;
+  font-size:10.5px;font-family:ui-monospace,Menlo,monospace;color:var(--text)}
+
+/* ===== 输出 ===== */
+.out{margin-top:14px;background:var(--card);border:1px solid var(--cardBd);
+  border-radius:14px;padding:12px}
+.out b{font-size:11px;color:var(--dim);font-weight:500;display:block;margin-bottom:7px}
+.out .txt{font-size:11px;line-height:1.8;font-family:ui-monospace,Menlo,monospace;
+  white-space:pre-wrap;word-break:break-all;color:var(--text)}
+.btn{width:100%;margin-top:10px;padding:13px;border-radius:13px;border:none;
+  background:var(--accent);color:#fff;font-size:13.5px;font-family:inherit;
+  font-weight:500;cursor:pointer}
+.hint{font-size:11px;color:var(--dim);line-height:1.8;margin:10px 3px 0}
+#toast{position:fixed;left:50%;bottom:32px;transform:translate(-50%,20px);opacity:0;
+  background:#3A3A3A;color:#fff;padding:10px 18px;border-radius:12px;font-size:13px;
+  pointer-events:none;transition:.22s;z-index:99}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <button id="btnLight" class="on">浅色</button>
+  <button id="btnDark">深色</button>
+</div>
+
+<!-- ================= 顶栏新布局 ================= -->
+<h2>① 改完后的顶栏 <span class="sub">右上：自动朗读 → 新建对话 → 更多</span></h2>
+<div class="topbar-wrap">
+  <div class="topbar">
+    <div class="side">
+      <div class="ibtn" title="会话历史">
+        <!-- 新图标：上长下短两条线 -->
+        <svg viewBox="0 0 24 24" id="topHist">
+          <line x1="3.5" y1="7.5" x2="20.5" y2="7.5" stroke-width="2"/>
+          <line x1="3.5" y1="16.5" x2="14" y2="16.5" stroke-width="2"/>
+        </svg>
+      </div>
+    </div>
+    <div class="side">
+      <div class="ibtn s22" title="自动朗读（条件显示）">
+        <svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>
+        <span class="tagline">自动朗读</span>
+      </div>
+      <div class="ibtn" title="新建对话">
+        <svg viewBox="0 0 1024 1024" style="fill:var(--text);stroke:none" class="fillonly">
+          <path d="M791.3472 522.752a11.776 11.776 0 0 1 11.776 11.776v126.8224h126.8224a11.776 11.776 0 0 1 11.5712 9.8304l0.1536 1.9456v46.9504a11.776 11.776 0 0 1-11.7248 11.7248h-126.8736v126.8736a11.776 11.776 0 0 1-9.7792 11.5712l-1.9456 0.1536h-46.9504a11.776 11.776 0 0 1-11.776-11.776v-126.8224h-126.8224a11.776 11.776 0 0 1-11.5712-9.8304l-0.2048-1.8944v-46.9504a11.776 11.776 0 0 1 11.776-11.776h126.8224V534.528a11.776 11.776 0 0 1 9.8816-11.6224l1.8944-0.1536h46.9504zM529.0496 102.4c234.8032 0 426.7008 168.2944 426.7008 378.112h-0.256v7.0656a14.6944 14.6944 0 0 1-14.6944 14.6944l-41.472-0.256a14.6944 14.6944 0 0 1-14.592-14.6432v-9.0624h0.512v-3.9936c-3.84-166.6048-160.9728-302.3872-356.1984-302.3872-197.5808 0-356.1984 139.1616-356.1984 308.5824 0 60.416 20.0704 118.1184 57.1904 167.68l5.1712 6.7584c18.688 23.552 16.384 39.5776-2.56 86.7328l-10.1888 25.088-3.584 9.4208 9.6256-1.28c8.9088-1.28 20.48-3.072 34.304-5.632l24.832-4.6592c52.6336-9.9328 71.0656-11.52 91.5968-4.0448l2.304 0.9216c46.6432 18.2784 96.3072 27.648 146.432 27.648l9.2672-0.1536c8.1408 0 14.6944 6.5536 14.6944 14.6944v40.3456a14.6944 14.6944 0 0 1-14.6944 14.6944h-9.3184l-10.9568-0.256a471.2448 471.2448 0 0 1-161.536-32.4096c-3.0208-1.2288-17.4592 0.2048-46.592 5.4272l-43.1616 8.0896c-57.4464 10.4448-78.8992 10.3424-101.2736-6.4-20.1216-15.1552-23.04-36.608-17.408-61.3376l1.3312-5.5296c2.4576-9.216 5.7856-18.176 12.3904-34.304l7.9872-19.8656a155.648 155.648 0 0 0 5.5808-16.0768l0.512-1.792c0.3584-1.536 0.512-1.9456 1.3312-1.024l3.2768 4.096-10.0352-13.2608C125.952 623.9232 102.4 553.7792 102.4 480.512 102.4 270.6944 294.2976 102.4 529.0496 102.4z"/>
+        </svg>
+        <span class="tagline">新建对话 NEW</span>
+      </div>
+      <div class="ibtn" title="更多菜单">
+        <svg viewBox="0 0 24 24">
+          <circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none"/>
+          <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/>
+          <circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none"/>
+        </svg>
+        <span class="tagline">更多</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 图标对比 ================= -->
+<h2>② 会话历史图标：改前 / 改后 <span class="sub">大图 72px + 真实尺寸 24px</span></h2>
+<div class="compare">
+  <div class="cbox">
+    <div class="lab">改前<br>三条线（ShortText）</div>
+    <div class="big">
+      <svg viewBox="0 0 24 24">
+        <path d="M3 6h18M3 12h18M3 18h13" stroke-width="2"/>
+      </svg>
+    </div>
+    <div class="small">
+      <svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h13" stroke-width="2"/></svg>
+    </div>
+    <div class="sm-lab">真实大小</div>
+  </div>
+  <div class="cbox">
+    <div class="lab">改后<br>两条线，上长下短</div>
+    <div class="big">
+      <svg viewBox="0 0 24 24" id="bigNew">
+        <line x1="3.5" y1="7.5" x2="20.5" y2="7.5" stroke-width="2"/>
+        <line x1="3.5" y1="16.5" x2="14" y2="16.5" stroke-width="2"/>
+      </svg>
+    </div>
+    <div class="small">
+      <svg viewBox="0 0 24 24" id="smallNew">
+        <line x1="3.5" y1="7.5" x2="20.5" y2="7.5" stroke-width="2"/>
+        <line x1="3.5" y1="16.5" x2="14" y2="16.5" stroke-width="2"/>
+      </svg>
+    </div>
+    <div class="sm-lab">真实大小</div>
+  </div>
+</div>
+
+<!-- ================= 预设 ================= -->
+<h2>③ 间距预设 <span class="sub">点一个先定个大方向</span></h2>
+<div class="presets" id="presets"></div>
+
+<!-- ================= 参数 ================= -->
+<h2>④ 微调（拖滑块，上面全部实时跟着变）</h2>
+<div class="panel">
+  <div class="row">
+    <div class="hd"><span>两条线的间距</span><b id="vGap">9.0dp</b></div>
+    <input type="range" id="rGap" min="6" max="13" step="0.5" value="9">
+  </div>
+  <div class="row">
+    <div class="hd"><span>下线长度</span><b id="vShort">43%</b></div>
+    <input type="range" id="rShort" min="25" max="80" step="1" value="42">
+  </div>
+  <div class="row">
+    <div class="hd"><span>线粗</span><b id="vW">2.0dp</b></div>
+    <input type="range" id="rW" min="1.5" max="3" step="0.1" value="2">
+  </div>
+  <div class="row">
+    <div class="hd"><span>整条线总长度</span><b id="vLen">17.0dp</b></div>
+    <input type="range" id="rLen" min="13" max="19" step="0.5" value="17">
+  </div>
+</div>
+
+<!-- ================= 变化说明 ================= -->
+<h2>⑤ 这一版改了什么</h2>
+<div class="diff">
+  <b>会话历史</b><span class="arw">→</span> 三条线减为两条；上线满宽、下线缩到不到一半；线端 <code>round</code> 全圆头；两线间距从 6dp 拉到 <span id="dGap">9</span>dp<br>
+  <b>新建对话</b><span class="arw">→</span> 从菜单里搬出来，插在「更多」左边；图标换成你给的 SVG<br>
+  <b>自动朗读</b><span class="arw">→</span> 位置不变，仍在最左
+</div>
+
+<div class="out">
+  <b>当前参数（复制给我）</b>
+  <div class="txt" id="outTxt"></div>
+  <button class="btn" id="copyBtn">复制参数发给你</button>
+</div>
+
+<div class="hint">
+  滑块调完如果觉得差不多了，点复制发我，我照这组数值写进 Kotlin。<br>
+  <b>注意</b>：24px 小图那行才是真机上的实际观感，大图只是方便看细节。
+</div>
+
+<div id="toast"></div>
+
+<script>
+(function(){
+  var S = { gap:9, shortPct:42, w:2, len:17 };
+
+  var LB = 3.5;          // 左端固定
+  var CX = 12;           // 垂直居中
+
+  function apply(){
+    var longEnd = LB + S.len;              // 上线右端
+    var shortEnd = LB + S.len * S.shortPct/100;
+    var h = S.gap / 2;
+    var y1 = CX - h;
+    var y2 = CX + h;
+
+    // 所有图标 SVG 同步
+    ['topHist','bigNew','smallNew'].forEach(function(id){
+      var svg = document.getElementById(id);
+      if (!svg) return;
+      var lines = svg.querySelectorAll('line');
+      if (lines.length < 2) return;
+      lines[0].setAttribute('x1', LB); lines[0].setAttribute('y1', y1);
+      lines[0].setAttribute('x2', longEnd); lines[0].setAttribute('y2', y1);
+      lines[0].setAttribute('stroke-width', S.w);
+      lines[1].setAttribute('x1', LB); lines[1].setAttribute('y1', y2);
+      lines[1].setAttribute('x2', shortEnd); lines[1].setAttribute('y2', y2);
+      lines[1].setAttribute('stroke-width', S.w);
+    });
+
+    document.getElementById('vGap').textContent = S.gap.toFixed(1)+'dp';
+    document.getElementById('vShort').textContent = S.shortPct+'%';
+    document.getElementById('vW').textContent = S.w.toFixed(1)+'dp';
+    document.getElementById('vLen').textContent = S.len.toFixed(1)+'dp';
+    document.getElementById('dGap').textContent = S.gap.toFixed(1);
+
+    renderPresets();
+    renderOut();
+  }
+
+  /* ---------- 预设 ---------- */
+  var PRESETS = [
+    {n:'保守', d:'接近原版', gap:7,  shortPct:62, w:2,   len:17},
+    {n:'标准', d:'推荐',     gap:9,  shortPct:42, w:2,   len:17},
+    {n:'舒展', d:'最透气',   gap:11, shortPct:42, w:2,   len:17},
+    {n:'粗短', d:'分量足',   gap:9,  shortPct:40, w:2.4, len:16},
+    {n:'细长', d:'轻巧',     gap:10, shortPct:45, w:1.7, len:18},
+    {n:'极端', d:'对比强',   gap:12, shortPct:33, w:2.2, len:17.5}
+  ];
+  var curPreset = '标准';
+
+  function svgFor(p){
+    var LB=3.5, CX=12;
+    var longEnd = LB + p.len;
+    var shortEnd = LB + p.len * p.shortPct/100;
+    var h = p.gap/2;
+    return '<svg viewBox="0 0 24 24">' +
+      '<line x1="'+LB+'" y1="'+(CX-h)+'" x2="'+longEnd+'" y2="'+(CX-h)+'" stroke-width="'+p.w+'"/>' +
+      '<line x1="'+LB+'" y1="'+(CX+h)+'" x2="'+shortEnd+'" y2="'+(CX+h)+'" stroke-width="'+p.w+'"/>' +
+      '</svg>';
+  }
+
+  function renderPresets(){
+    var box = document.getElementById('presets');
+    if (box.dataset.built === '1') {
+      // 只更新选中态
+      [].forEach.call(box.children, function(el){
+        el.classList.toggle('on', el.dataset.n === curPreset);
+      });
+      return;
+    }
+    box.innerHTML = PRESETS.map(function(p){
+      return '<div class="pre'+(p.n===curPreset?' on':'')+'" data-n="'+p.n+'">' +
+        svgFor(p) + '<div class="nm"><b>'+p.n+'</b>'+p.d+'</div></div>';
+    }).join('');
+    box.dataset.built = '1';
+    [].forEach.call(box.children, function(el){
+      el.onclick = function(){
+        var p = PRESETS.filter(function(x){ return x.n === el.dataset.n; })[0];
+        if (!p) return;
+        curPreset = p.n;
+        S.gap = p.gap; S.shortPct = p.shortPct; S.w = p.w; S.len = p.len;
+        document.getElementById('rGap').value = p.gap;
+        document.getElementById('rShort').value = p.shortPct;
+        document.getElementById('rW').value = p.w;
+        document.getElementById('rLen').value = p.len;
+        apply();
+      };
+    });
+  }
+
+  /* ---------- 输出 ---------- */
+  function renderOut(){
+    var longEnd = (3.5 + S.len).toFixed(1);
+    var shortEnd = (3.5 + S.len * S.shortPct/100).toFixed(1);
+    var h = S.gap/2;
+    var t = '会话历史：两线  gap=' + S.gap.toFixed(1) + 'dp  ' +
+            '上线 3.5→' + longEnd + '  ' +
+            '下线 3.5→' + shortEnd + '  ' +
+            '线粗 ' + S.w.toFixed(1) + '  round 端点\n' +
+            'y1=' + (12-h).toFixed(1) + '  y2=' + (12+h).toFixed(1) + '\n' +
+            '新建对话：移到更多左侧，用指定 SVG';
+    document.getElementById('outTxt').textContent = t;
+  }
+
+  /* ---------- 事件 ---------- */
+  function bind(id, key, parse){
+    document.getElementById(id).oninput = function(e){
+      S[key] = parse ? parse(e.target.value) : parseFloat(e.target.value);
+      curPreset = '';       // 手动调了就不再算某个预设
+      apply();
+    };
+  }
+  bind('rGap','gap');
+  bind('rShort','shortPct', function(v){ return parseInt(v,10); });
+  bind('rW','w');
+  bind('rLen','len');
+
+  /* 模式 */
+  document.getElementById('btnLight').onclick = function(){
+    document.body.classList.remove('dark'); this.classList.add('on');
+    document.getElementById('btnDark').classList.remove('on');
+  };
+  document.getElementById('btnDark').onclick = function(){
+    document.body.classList.add('dark'); this.classList.add('on');
+    document.getElementById('btnLight').classList.remove('on');
+  };
+
+  /* 复制 */
+  function toast(t){
+    var el=document.getElementById('toast');
+    el.textContent=t; el.classList.add('show');
+    clearTimeout(window.__tt);
+    window.__tt=setTimeout(function(){ el.classList.remove('show'); },2200);
+  }
+  document.getElementById('copyBtn').onclick = function(){
+    var t = document.getElementById('outTxt').textContent;
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(t).then(function(){ toast('已复制，发给我'); },
+        function(){ toast(t); });
+    } else { toast(t); }
+  };
+
+  apply();
+})();
+</script>
+</body>
+</html>
