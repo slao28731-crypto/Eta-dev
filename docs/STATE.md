@@ -33,7 +33,7 @@
 |---|---|
 | 本地不能编译 | `aapt2` 是 x86_64 ELF，aarch64 PRoot 跑不了。任何编译验证只能走 GitHub Actions |
 | 4 个文件图谱不全 | `AgentContextCompactor.kt` / `AgentToolBatchRecovery.kt` / `MarkdownInline.kt` / `AgentRuntimeWireTest.kt`，查这些要直接读源码 |
-| 仓库是 public | Eta 上游是 PolyForm Noncommercial 1.0.0，限制二次分发。考虑改 private |
+| 仓库是 public | Eta 上游是 PolyForm Noncommercial 1.0.0，限制二次分发。**用户已明确决定保持 public，不要重复建议转 private** |
 | 签名只有一份 | keystore 在 `/sdcard/Download/eta_out/eta-release.jks`，**尚未做离线多份备份** |
 | 无真机验证记录 | Xposed / 无障碍 / 终端 / MCP 都还没在真机上实测过 |
 

@@ -43,7 +43,7 @@ _暂无_
 - [ ] 补 `docs/MODULES.md` 里除 agent/hook/core 之外模块的细化条目
 - [ ] 把 graphify 增量更新挂到 git pre-push hook（可选）
 - [ ] 考虑给 graphify 接 LLM backend 自动命名社区（当前是 `Community 0..435` 占位名）
-- [ ] 仓库可见性：Eta 是 PolyForm Noncommercial 许可，限制二次分发，考虑改 private
+- [x] **2026-10-18** 用户决定仓库保持 public（不再讨论转 private）
 
 ### 低优先级
 
