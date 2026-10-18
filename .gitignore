@@ -37,3 +37,9 @@ google-services.json
 
 # Operit snapshots (contains credentials)
 .backup/
+
+# Graphify 生成的代码图谱：可由 `graphify update .` 重建，不入库
+/graphify-out/
+# Graphify 本地缓存与查询日志
+.graphify_cache/
+.graphifyignore

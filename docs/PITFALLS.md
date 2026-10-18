@@ -1,0 +1,123 @@
+# 踩坑清单
+
+> 格式：**现象** → **根因** → **解法**。新坑往上加，不要只写结论。
+
+---
+
+## 构建 / 工具链
+
+### P001 · 改了两行 Kotlin 却编译失败，报 SDK / JDK 版本不符
+**现象**：`Unsupported class file major version` 或 Compose 编译器报版本不匹配。
+**根因**：项目锁死 JDK 25 + compileSdk 37 + AGP 9.4.1 + Kotlin 2.4.20。用了 JDK 17 或 SDK 35 就会炸。
+**解法**：确认 `java -version` 是 25，`local.properties` 的 `sdk.dir` 指向含 `platforms/android-37` 的 SDK。
+
+### P002 · 云端构建报 `platforms;android-37.0` 找不到
+**现象**：CI 里 `sdkmanager "platforms;android-37"` 失败。
+**根因**：37 是预览通道，包名带 `.0` 后缀。
+**解法**：必须写 `sdkmanager --channel=3 "platforms;android-37.0"`。见 `.github/workflows/build-apk.yml`。
+
+### P003 · PRoot 里 `uv tool install graphifyy` 报 `Operation not permitted`
+**现象**：`failed to hardlink file ... os error 1`。
+**根因**：PRoot 模拟层禁止 hardlink。
+**解法**：`uv tool install --link-mode=copy graphifyy`。
+
+### P004 · npm 装 codex 后运行卡死无输出
+**现象**：`codex exec` 一直挂着，最后被 timeout 杀掉。
+**根因**：本地模型网关（workbuddy）有渠道校验，agent 类系统提示词会被判"非官方客户端"直接 400。
+**解法**：这类网关只适合普通对话，不适合 agent 长任务。别在上面折腾 Codex。
+
+---
+
+## Xposed / Hook
+
+### P010 · 模块装了、LSPosed 里也显示激活，但功能完全没反应
+**现象**：无障碍正常，但电源键接管、小布接管全都不生效。
+**根因**：`META-INF/xposed/scope.list` 没包含目标包名，或 `java_init.list` 少了入口类。
+**解法**：改 `app/src/main/resources/META-INF/xposed/`，新增目标包后必须重新打包安装。
+**注意**：R8 混淆后如果这三个文件丢了，模块会静默失效，没有任何报错。
+
+### P011 · 系统升级后 hook 失效，日志里有 NoSuchMethod
+**现象**：`ModuleLogger` 输出找不到类/方法。
+**根因**：厂商改了小布 / 小爱 / 一圈即搜的内部类名与方法签名。
+**解法**：用 `core/DexKitTargets.kt` 的 DexKit 匹配逻辑重新定位；纯字符串匹配的 hook 要加版本分支。
+
+### P012 · 改了 Hook 与 App 的通信字段后，功能半死不活
+**现象**：调用有反应但结果为空，或 hook 侧崩溃。
+**根因**：`AgentRuntimeWire` 是双向协议，只改一端会导致字段缺失。
+**解法**：协议改动必须 App 与 Hook **同时**改、同时装。版本不匹配时要有显式降级，不能静默。
+
+### P013 · release 包里 hook 全部失效，debug 包正常
+**现象**：只有 release 版有问题。
+**根因**：ProGuard/R8 把 hook 入口类或反射用到的类改名了。
+**解法**：检查 `app/proguard-rules.pro` 里的 `-keep class io.github.mangi.eta.ModuleMain` 等规则；新增 hook 入口类要加 keep。
+
+---
+
+## 原生库
+
+### P020 · 改了 C 代码，终端功能还是老行为
+**现象**：`eta_pty.c` 改了没效果。
+**根因**：`app/src/main/jniLibs/` 里的 `.so` 是**预编译产物**，Gradle 不会自动编译 `cpp/`。
+**解法**：手动跑 `scripts/build-terminal-native.sh`，把生成的 `.so` 拷回 `jniLibs/<abi>/`，再重新打包。
+**注意**：`libproot_exec.so` / `libproot_loader.so` 只有 `arm64-v8a` 和 `x86_64`，缺了对应架构会直接崩。
+
+### P021 · release 包体积暴增 / 崩溃栈无符号
+**现象**：`packaging.jniLibs.keepDebugSymbols` 里列的三个 so 没排查符号问题。
+**根因**：`useLegacyPackaging = true` + `keepDebugSymbols` 对三个库例外。
+**解法**：新增原生库如果也需要保留符号，要同步加进 `keepDebugSymbols`。
+
+---
+
+## 数据 / 存储
+
+### P030 · 升级后用户聊天记录、Provider 配置全没了
+**现象**：装新版后打开是空白。
+**根因**：Room Entity 改了字段/类名，触发 destructive migration。
+**解法**：改 schema 必须写 `Migration`，并在 `EtaDatabase` 里注册。**绝不加 `fallbackToDestructiveMigration()`**。
+
+### P031 · 敏感工具的原始参数出现在导出的会话里
+**现象**：导出 Markdown 时看到不该有的内容。
+**根因**：`transcript` 写入路径没区分敏感工具。
+**解法**：敏感工具与 MCP 的原始参数/结果只在内存保留，不写持久会话。改 transcript 编码时务必守住这条线。
+
+---
+
+## 签名 / 发版
+
+### P040 · 新包装不上，提示签名冲突
+**现象**：`INSTALL_FAILED_UPDATE_INCOMPATIBLE`。
+**根因**：换了签名证书。CI 每次构建临时生成 keystore，签名会变。
+**解法**：要长期覆盖升级，把固定 keystore 存成 Actions Secret（`ETA_RELEASE_KEYSTORE_BASE64` + 三个口令），并在 workflow 里还原。否则只能卸载重装（丢数据）。
+
+### P041 · release 构建出来没签名
+**现象**：`apksigner verify` 失败，或产物是 unsigned。
+**根因**：`app/build.gradle.kts` 里四个环境变量缺任一个，`hasReleaseSigning` 为 false，`signingConfig` 为 null。
+**解法**：确认 `ETA_RELEASE_STORE_FILE` / `ETA_RELEASE_STORE_PASSWORD` / `ETA_RELEASE_KEY_ALIAS` / `ETA_RELEASE_KEY_PASSWORD` 全部存在。
+
+---
+
+## Provider / 模型
+
+### P050 · 接新 Provider 后 Tool Calling 不工作
+**现象**：模型能聊天但不会调用工具。
+**根因**：Provider 层三条 SSE 解析路径不同，新 Provider 可能走错分支，或者模型本身不支持 tool call。
+**解法**：先确认端点返回的 `tool_calls` 结构（OpenAI 是 `delta.tool_calls`，Anthropic 是 `content_block_start`）。**不要为了省事把三条路径合并**。
+
+### P051 · 自动压缩不触发
+**现象**：上下文超了也不压缩。
+**根因**：Provider 配置里没填上下文窗口 tokens，或服务商没返回输入用量。
+**解法**：在 Provider 设置里填 `context_length`；服务商不返回 usage 时只能手动压缩。
+
+---
+
+## 文档 / 图谱
+
+### P060 · `graphify extract` 扫不到文件
+**现象**：节点数远少于预期。
+**根因**：graphify 按 `.gitignore` 取文件。生成物、缓存目录如果写在 ignore 里就会被跳过。
+**解法**：`AGENTS.md`、`docs/` 这类需要在图谱里的文件**不要**加进 `.gitignore`。当前 `graphify-out/` 已 ignore（它本身是产物）。
+
+### P061 · 4 个 Kotlin 文件解析不全
+**现象**：`AgentContextCompactor.kt` 只有 3 个符号。
+**根因**：tree-sitter 的 Kotlin 语法版本与项目 Kotlin 2.4.20 的新语法不完全兼容。
+**解法**：已知缺陷，不影响主流程。这几个文件靠 `graphify explain` 查不到完整信息时，直接读源码。
