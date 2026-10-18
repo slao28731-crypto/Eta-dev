@@ -43,6 +43,7 @@ import io.github.mangi.eta.R
 import io.github.mangi.eta.ui.components.AdaptiveTopAppBar
 import io.github.mangi.eta.ui.components.CharacterAvatar
 import io.github.mangi.eta.ui.components.ConversationSidePaneScaffold
+import io.github.mangi.eta.ui.components.LocalPageBackgroundColor
 import io.github.mangi.eta.ui.components.MiuixBackButton
 import io.github.mangi.eta.ui.components.RoleplayChatUi
 import io.github.mangi.eta.ui.components.TopBarBackdrop
@@ -114,6 +115,10 @@ internal fun AgentAppShell(
     val pageContent: @Composable () -> Unit = {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
+            // 侧栏展开时下层页面由侧栏统一提供底色（随展开进度插值），这里必须用同一个值，
+            // 否则 Scaffold 默认的 background（深色下是纯黑）会把侧栏那层底色整个盖掉。
+            // 不在侧栏场景时回落为 null，改用主题默认 background，观感与改动前一致。
+            containerColor = LocalPageBackgroundColor.current ?: MiuixTheme.colorScheme.background,
             contentWindowInsets = WindowInsets.safeDrawing.only(
                 WindowInsetsSides.Top + WindowInsetsSides.Horizontal,
             ),

@@ -39,6 +39,7 @@ import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SportsBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -99,6 +100,17 @@ private object ConversationPanelMetrics {
     val DockEntryCornerRadius = 12.dp
     val DockEntryIconSize = 20.dp
 }
+
+/**
+ * 侧栏展开时向下层页面提供的底色。
+ *
+ * 侧栏容器已经在最底下画了一层随展开进度变化的底色，但页面自己的 `Scaffold` 默认会用
+ * `colorScheme.background`（深色下是纯黑）再盖一层不透明底色，把下层覆盖掉。
+ * 因此由侧栏通过这个 CompositionLocal 把当前底色传下去，页面 Scaffold 用它当 containerColor。
+ *
+ * 不在侧栏场景时为 null，页面回落到 `colorScheme.background`，行为与改动前一致。
+ */
+internal val LocalPageBackgroundColor = compositionLocalOf<Color?> { null }
 
 /**
  * 侧栏与外层推移容器共用的背景色。

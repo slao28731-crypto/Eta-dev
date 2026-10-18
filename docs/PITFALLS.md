@@ -134,10 +134,16 @@
 
 ### P074 · 深色下展开抽屉，右侧聊天卡片是纯黑，像在抽屉上"挖了个洞"
 **现象**：深色模式下抽屉展开，抽屉是 `#242424`，右侧聊天卡片是 `#000000`，后层比前层亮，层次关系反了；卡片上下还有 12dp 的同色带（即 P072）。
-**根因**：Miuix Spec2025 主题包里 `colorScheme.background` 本身就是纯黑 `#000000`，而抽屉用的 `conversationPaneContainerColor()` 取 `surfaceContainer`（`#242424`）。上游为此写了 `appPageBackgroundColor()`（`lerp(surface, surfaceContainer, 0.72f)` → `#1A1A1A`）来避免纯黑当页面底色，**但工作区这份仓库没有这个函数**，直接用了 `background`。
-**解法**：在 `ConversationSidePaneScaffold` 里按展开进度把卡片底色 lerp 到抽屉底色（`ConversationPaneMetrics.DarkPageLift = 1f`），关闭时系数归 0 保持原底色。卡片与抽屉同色后层次只能靠圆角 + 阴影 + 描边表达，因此同时把 `ForegroundShadow` 提到 `16.dp` 并加一条 `0.5dp` 的 hairline 描边（alpha 随 progress）。
-**副作用**：浅色下 `background` 与 `surfaceContainer` 都是浅色，lerp 结果不变，零影响；`lerp` 只作用在 `paneProgress` 上，拖拽时是重组这一层，不是全屏重绘。
-**未做**：上游那个 `appPageBackgroundColor()` 仍是缺失状态，若要让整个 App 深色底色都从 `#000000` 提到 `#1A1A1A`，需改 6 个文件（`AgentAppShell` / `AgentChatBody` / `MiuixScaffoldPage` / `TopBarBackdrop` / `AgentBrowserScreen` / 本文件），属于另一项独立改动。
+**根因（两层）**：
+1. Miuix Spec2025 主题包里 `colorScheme.background` 本身就是纯黑 `#000000`，而抽屉用的 `conversationPaneContainerColor()` 取 `surfaceContainer`（`#242424`）。上游为此写了 `appPageBackgroundColor()` 做混色，**但工作区这份仓库没有这个函数**。
+2. **更关键的一层**：`AgentAppShell` 的 `Scaffold` 没写 `containerColor`，用的是 Miuix 默认 `background`（纯黑），这层不透明背景盖在 `ConversationSidePaneScaffold` 画好的底色上面。**只在侧栏那一层改底色是无效的**——第一次修复就踩了这个坑，读者反馈"和之前没区别"。
+**排查方法**：截图取色。抽屉 `#242424`、卡片主体 `#000000`、卡片底部输入栏 `#242424`。底部输入栏是 `surface`，它没变黑说明主题的 `surface` 正常；只有 `Scaffold` 的 `containerColor` 走了 `background`。
+**解法**：
+1. 侧栏按 `paneProgress` 把底色 lerp 到抽屉色（`ConversationPaneMetrics.DarkPageLift = 1f`），关闭时系数归 0。
+2. 新增 `LocalPageBackgroundColor: CompositionLocal<Color?>`（定义在 `ConversationPanePanel.kt`），侧栏用 `CompositionLocalProvider` 把当前底色传进 `content()`。
+3. `AgentAppShell` 的 `Scaffold` 改用 `containerColor = LocalPageBackgroundColor.current ?: MiuixTheme.colorScheme.background`。**这一步不可省**，否则前两步无效。
+**副作用**：浅色下 `background` 与 `surfaceContainer` 都是浅色，lerp 结果不变，零影响；非侧栏路由 `LocalPageBackgroundColor` 为 `null`，回落主题默认值，行为与改动前一致。
+**未做**：上游 `appPageBackgroundColor()` 仍是缺失状态，若要让整个 App 深色底色都从 `#000000` 提到 `#1A1A1A`，需改 6 个文件，属于另一项独立改动。
 
 ---
 

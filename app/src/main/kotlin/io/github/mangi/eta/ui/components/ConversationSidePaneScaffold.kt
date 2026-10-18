@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
@@ -312,7 +313,11 @@ fun ConversationSidePaneScaffold(
                                 .focusGroup()
                                 .then(if (isRevealed) Modifier.clearAndSetSemantics {} else Modifier),
                         ) {
-                            content()
+                            // 页面自己的 Scaffold 会再画一层不透明底色，必须把当前底色传下去，
+                            // 否则这一层会被纯黑盖掉，下面的插值等于没做。
+                            CompositionLocalProvider(LocalPageBackgroundColor provides pageBackgroundColor) {
+                                content()
+                            }
                         }
                         if (isRevealed) {
                             Box(

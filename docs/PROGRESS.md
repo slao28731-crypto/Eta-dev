@@ -31,6 +31,7 @@
 - [x] **2026-10-18** 建 `demo/` 目录，4 份抽屉 HTML 原型（v5 叠层尝试 / v7 A-B 对比 / suture 照抄源码 / 旧版），供后续 UI 改动先看效果再落 Kotlin
 - [x] **2026-10-18** 深色卡片底色修复（方案 B）：展开时按 `paneProgress` 把卡片从 `background`(`#000000`) lerp 到 `surfaceContainer`(`#242424`)，关闭时系数归 0 保持原底色。同时 `ForegroundShadow` 12→16dp、加 0.5dp hairline 描边（alpha 随 progress），因为两层同色后只能靠圆角+阴影+描边表达层次。浅色零影响（两色本来就是同一档浅色）
 - [x] **2026-10-18** 建 `demo/dark-card-color.html`：四档提亮比例（0% / 50% / 72% / 100%）可实时切换的深色对比页，含灰阶差、色带位置、缺陷标注
+- [x] **2026-10-18** 修 P074 第一次修复无效的问题：`AgentAppShell` 的 `Scaffold` 缺 `containerColor`，默认 `background`（纯黑）盖住了侧栏画的底色。新增 `LocalPageBackgroundColor` CompositionLocal，侧栏下传当前底色、壳层 Scaffold 接收，三处联动才生效。排查靠截图取色（卡片主体 `#000000`、底部输入栏 `#242424`）
 
 ## 进行中
 
