@@ -92,6 +92,7 @@ git push origin clean:main
 
 | 文件 | 什么时候读 |
 |---|---|
+| `docs/USER_RULES.md` | **动代码之前必读**（先摸链路 → 反向提问 → 用户确认） |
 | `docs/START_HERE.md` | **刚接手时第一个读** |
 | `AGENTS.md` | 想知道架构、红线、收工要求 |
 | 本文 `docs/STATE.md` | 想知道现在做到哪、下一步做什么 |

@@ -149,6 +149,7 @@ push main / 手动触发
 ## 11. 文档维护
 
 - `AGENTS.md` 是唯一入口，新 agent 必读
+- **`docs/USER_RULES.md` 是最高优先级**：接需求先摸链路、反向提问、用户确认后才动代码
 - `docs/START_HERE.md` 新 agent 三步对齐（读文档 → 确认图谱 → 确认工作区）
 - `docs/STATE.md` 一页状态卡，**收工必须更新「下一步」段**
 - 每次任务后更新 `docs/PROGRESS.md`
