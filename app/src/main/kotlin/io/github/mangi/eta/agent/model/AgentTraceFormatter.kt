@@ -314,12 +314,28 @@ internal class AgentTraceFormatter {
         return if (json.optBoolean("has_more")) "已读前 ${formatCharCount(chars)}" else formatCharCount(chars)
     }
 
-    /** 失败摘要保留 code= 标记，供运行日志提取稳定错误码；message 是工具侧给出的中文原因。 */
+    /**
+     * 失败摘要保留 code= 标记，供运行日志提取稳定错误码；message 是工具侧给出的中文原因。
+     *
+     * `content` 回退是给 MCP 用的：远端服务器报错时把原因放在 result.content 数组里，
+     * 没有 message 字段。只认 message 会让摘要退化成「失败 · code=MCP_TOOL_ERROR」，
+     * 用户展开也看不到任何细节（因为 resultSummary 与折叠行文本完全相同，UI 判定无详情）。
+     */
     private fun summarizeFailure(json: JSONObject?): String {
         val code = json?.optString("code")?.takeIf { it.isNotBlank() }
         val reason = json?.optString("message")
             ?.let(::sanitizeSummaryValue)
             ?.takeIf { it.isNotBlank() }
+            ?: json?.optJSONArray("content")
+                ?.let { array ->
+                    (0 until array.length())
+                        .mapNotNull { index ->
+                            (array.opt(index) as? String)?.takeIf(String::isNotBlank)
+                        }
+                        .firstOrNull()
+                }
+                ?.let { sanitizeSummaryValue(it, MAX_FAILURE_REASON_CHARS) }
+                ?.takeIf { it.isNotBlank() }
         return buildList {
             add("失败")
             reason?.let(::add)
@@ -606,6 +622,8 @@ internal class AgentTraceFormatter {
         const val BROWSER_TOOL_NAME = "browser_use"
         const val MAX_DISPLAY_COMMAND_CHARS = 4_000
         const val MAX_QUERY_SUMMARY_CHARS = 30
+        /** 失败原因来自远端服务（如 MCP content），可能很长；保留足够定位问题，又不撑爆折叠行。 */
+        const val MAX_FAILURE_REASON_CHARS = 160
         const val MAX_LISTED_APP_NAMES = 3
         const val MAX_TERMINAL_PREVIEW_LINES = 3
         const val MAX_TERMINAL_PREVIEW_CHARS = 240

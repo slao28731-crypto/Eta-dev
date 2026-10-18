@@ -255,7 +255,19 @@ internal class McpToolExecutor(
         }
         if (truncated) payload.put("truncated", true)
         if (omittedItems > 0) payload.put("omitted_items", omittedItems)
-        if (result.optBoolean("isError", false)) payload.put("code", "MCP_TOOL_ERROR")
+        if (result.optBoolean("isError", false)) {
+            payload.put("code", "MCP_TOOL_ERROR")
+            // 远端把失败原因放在 content 里，没有 message 字段。补一个 message：
+            // UI 的失败摘要只读 message，缺了它用户只能看到「失败 · code=MCP_TOOL_ERROR」，
+            // 展开也拿不到任何细节（折叠行与详情同文，被判为无详情）。
+            val reason = (0 until textItems.length())
+                .mapNotNull { index -> textItems.optString(index).takeIf(String::isNotBlank) }
+                .firstOrNull()
+                ?.replace(Regex("\\s+"), " ")
+                ?.trim()
+                ?.take(MAX_ERROR_REASON_CHARS)
+            if (!reason.isNullOrBlank()) payload.put("message", reason)
+        }
         return AgentModelClient.ToolResult(
             content = payload.toString(),
             images = images,
@@ -288,6 +300,8 @@ internal class McpToolExecutor(
         const val MAX_TEXT_BYTES = 64 * 1024
         const val MAX_STRUCTURED_BYTES = 64 * 1024
         const val MAX_IMAGE_BYTES = 2 * 1024 * 1024
+        /** 摘要层面的失败原因上限，比摘要行更宽松，够看清服务端说了什么。 */
+        const val MAX_ERROR_REASON_CHARS = 160
     }
 }
 

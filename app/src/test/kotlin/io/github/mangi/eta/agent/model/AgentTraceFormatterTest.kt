@@ -154,6 +154,48 @@ class AgentTraceFormatterTest {
     }
 
     @Test
+    fun mcpFailureSurfacesTheRemoteReasonFromContentArray() {
+        // 远端 MCP 服务器把失败原因放在 content 数组里，没有 message 字段。
+        // 只认 message 会让摘要退化成「失败 · code=MCP_TOOL_ERROR」，
+        // 用户在界面上展开也看不到任何细节（折叠行与详情同文，UI 判定为无详情）。
+        val result = AgentModelClient.ToolResult(
+            content = """{"ok":false,"server":"niehe","tool":"flutter_blutter",""" +
+                """"content":["Flutter version 3.24.0 is not supported, expected 3.44.x"],""" +
+                """"code":"MCP_TOOL_ERROR"}""",
+            sensitive = true,
+        )
+        val summary = formatter.summarizeResult("mcp_abc12345_flutter_blutter_9f8e7d6c", result)
+        assertTrue(summary, summary.contains("3.24.0"))
+        assertTrue(summary, summary.contains("expected 3.44.x"))
+        assertTrue(summary, summary.contains("code=MCP_TOOL_ERROR"))
+        assertTrue(summary.startsWith("失败"))
+    }
+
+    @Test
+    fun mcpErrorMessageFieldTakesPrecedenceOverContentArray() {
+        val result = AgentModelClient.ToolResult(
+            content = """{"ok":false,"content":["raw payload"],"message":"连接被拒绝","code":"MCP_TOOL_ERROR"}""",
+            sensitive = true,
+        )
+        val summary = formatter.summarizeResult("mcp_abc12345_x_9f8e7d6c", result)
+        assertTrue(summary, summary.contains("连接被拒绝"))
+        assertFalse(summary, summary.contains("raw payload"))
+    }
+
+    @Test
+    fun mcpFailureReasonIsFlattenedAndBounded() {
+        val noisy = "line1\n\nline2\t\tline3" + "x".repeat(400)
+        val result = AgentModelClient.ToolResult(
+            content = """{"ok":false,"content":["$noisy"],"code":"MCP_TOOL_ERROR"}""",
+            sensitive = true,
+        )
+        val summary = formatter.summarizeResult("mcp_abc12345_x_9f8e7d6c", result)
+        assertFalse("换行必须被压平", summary.contains('\n'))
+        assertTrue("超长原因需截断", summary.contains("..."))
+        assertFalse(summary.contains("x".repeat(400)))
+    }
+
+    @Test
     fun stateChangeWithoutReadbackIsShownAsUnconfirmed() {
         val result = AgentModelClient.ToolResult(
             content = """{"ok":false,"status":"unconfirmed","verified":false,"code":"STATE_CHANGE_UNCONFIRMED"}""",
