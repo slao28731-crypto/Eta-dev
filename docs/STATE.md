@@ -12,7 +12,20 @@
 | 签名 | ✅ 固定 keystore（至 2056-10-10），支持覆盖升级 |
 | 代码图谱 | ✅ Graphify 0.9.92，11899 节点 / 436 社区 |
 | 交接文档 | ✅ AGENTS.md + docs 六件套 + 3 条 ADR |
-| **二改功能开发** | ✅ **本轮已验收**：抽屉叠层几何 + 深色三级配色 + 浅色上游对齐 + 灰带修复 |
+| **二改功能开发** | ✅ **已验收两轮**：抽屉/配色轮 + 顶栏图标轮 |
+
+## 顶栏图标（用户已定稿）
+
+| 项 | 内容 |
+|---|---|
+| 会话历史图标 | 两条圆头横线，上长下短。`res/drawable/ic_conversation_history.xml` |
+| 线参数 | 上线 `M3.5,7.5 L19,7.5`、下线 `M3.5,16.5 L12.3,16.5`、`strokeWidth=2.4`、`strokeLineCap=round` |
+| 新建对话 | 从溢出菜单提到顶栏，插在「更多」左侧；图标 `res/drawable/ic_new_conversation.xml`（用户提供的 SVG） |
+| SVG fill 处理 | 原 `#060A26` 深蓝改为 `#FF000000`，再由 Compose `tint = onSurface` 按主题着色。**否则深色下看不见** |
+| 菜单项 | 已删除「新建对话」，剩：终端 / Kimi Web / 浏览器 / 停止 Kimi（条件） |
+| 菜单索引 | 0 终端 / 1 Kimi Web / 2 浏览器 / 3 停止 Kimi。**改菜单顺序必须同步改 `onSelectedIndexChange`** |
+
+调参原型：`demo/topbar-v2.html`（会话历史图标四滑块 + 六预设）、`demo/topbar-icons.html`（顶栏全部图标总览）。
 
 ## 深色配色方案（用户已定稿）
 
@@ -32,11 +45,11 @@
 
 ## 下一步（最重要）
 
-**本轮二改已全部验收通过（2026-10-18，commit `38fe2a3`）。当前无进行中任务，等下一个需求。**
+**两轮二改已全部验收通过（2026-10-18 / 10-19）。当前无进行中任务，等下一个需求。**
 
-用户原话：「好了我已经安装好了并进行了测试现在已经可以了，可以确认验收」
+第二轮验收（顶栏图标）用户原话：「测试好了没问题，验收。」
 
-### 本轮已完成并验收的完整清单
+### 已完成并验收的完整清单
 
 | # | 内容 | commit |
 |---|---|---|
@@ -44,6 +57,7 @@
 | 2 | 深色三级配色：抽屉 `#0F0F0F` / 页面 `#1A1A1A` / 卡片 `#343434` | `d64864e` |
 | 3 | 浅色各卡片回落各自上游层级、输入卡恢复 `#E8E8E8` | `24e30f7` |
 | 4 | 抽屉卡片底部灰带修复（阴影退回 12dp、hairline 仅深色） | `38fe2a3` |
+| 5 | 顶栏会话历史换两线图标 + 新建对话提到顶栏（更多左侧，用户 SVG） | `4f2b4aa` |
 
 ### 后续可做的二改方向（尚未确认）
 
@@ -52,9 +66,9 @@
 - 换 Provider（接入自建模型网关）
 - 改 hook 目标（适配新 ROM 版本 / 新增厂商助手）
 
-### 若要继续调这两处，改哪里
+### 若要继续微调，改哪里
 
-| 想改什么 | 改哪个常量 | 位置 |
+| 想改什么 | 改哪个常量 / 文件 | 位置 |
 |---|---|---|
 | 深色气泡太暗/太亮 | `DarkCardSurface`（`#343434`） | `ui/components/ConversationPanePanel.kt` |
 | 深色页面底色 | `DarkPageBackground`（`#1A1A1A`） | 同上 |
@@ -62,8 +76,11 @@
 | 抽屉阴影浓淡 | `ForegroundShadow`（`12.dp`，上游原值） | `ui/components/ConversationSidePaneScaffold.kt` |
 | 卡片上下露边高度 | `FOREGROUND_MIN_VERTICAL_SCALE`（`0.97f`，上游原值） | `ui/components/ConversationPaneMotion.kt` |
 | 抽屉宽度 | `PaneTargetWidth` / `PaneWidthFraction` | `ConversationSidePaneScaffold.kt` |
+| 会话历史图标线形 | `ic_conversation_history.xml` 的两条 path | `app/src/main/res/drawable/` |
+| 新建对话图标 | `ic_new_conversation.xml` | 同上 |
+| 顶栏图标顺序/增删 | `AgentTopBar` 的 `actions` 块 | `ui/app/AgentAppShell.kt` |
 
-调色台原型：`demo/dark-palette.html`（可拖滑块试色，一键复制色值）。
+原型：`demo/dark-palette.html`（深色调色台）、`demo/topbar-v2.html`（会话历史图标调参）、`demo/topbar-icons.html`（顶栏图标总览）。
 
 ---
 
@@ -156,4 +173,4 @@ git push origin clean:main
 
 ---
 
-_最后更新：2026-10-18 · 本轮二改全部验收通过（抽屉几何 + 深色三级配色 + 浅色上游对齐 + 灰带修复，commit 38fe2a3）_
+_最后更新：2026-10-19 · 第二轮验收通过（顶栏图标：会话历史两线图标 + 新建对话提到顶栏，commit 4f2b4aa）_

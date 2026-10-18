@@ -176,6 +176,27 @@
 **解法**：函数签名改为 `appCardSurfaceColor(fallback: Color)`，浅色回落由**调用方各自传入自己的上游原值**，深色才收口到 `#343434`。底部输入框干脆不走这个入口，直接写死 `surfaceContainer`。
 **教训**：**"统一入口"要统一的是深色，不是浅色**。浅色是用户已经认可的上游观感，任何"顺手统一"都会破坏它。做主题改动时先 `git show <基线commit>:<file>` 把每个调用点的原始值查出来，不能凭印象统一。
 
+### P078 · 从溢出菜单移走一项后，菜单点击全部错位
+**现象**：把「新建对话」从 `TopBarOverflowMenu` 移到顶栏后，点「打开终端」跳到了浏览器，点「浏览器」跳到了别的。
+**根因**：`DropdownImpl` 的 `onSelectedIndexChange` 是**按下标硬编码分派**的 `when (index) { 0 -> ...; 1 -> ... }`。删掉列表第 0 项后，`menuItems` 整体前移一位，但 `when` 分支没跟着改，于是每一次点击都命中下一个功能。
+**解法**：删菜单项时必须同步改 `when`。当前映射（`ui/app/AgentAppShell.kt`）：
+
+```
+index 0 -> onOpenTerminal()
+index 1 -> onLaunchKimiWeb()
+index 2 -> onOpenBrowser()
+index 3 -> onStopKimiWeb()   // 条件项，仅 canStopKimiWeb 时存在
+```
+
+**教训**：`listOf(...)` 的顺序就是**隐式契约**，而 `when (index)` 是完全脱离列表的一句代码，编译器查不出两者是否对齐。凡是"按位置分派"的 UI（菜单、Tab、步骤条），增删项都必须把两处一起看。更好的写法是把 `onClick` 直接放进 `DropdownItem` 的数据结构里，但这需要适配 Miuix 的 `DropdownImpl` 签名，属独立改动。
+
+### P079 · 用户给的 SVG fill 是固定深色，深色主题下会消失
+**现象**：把用户提供的 SVG 转成 vector drawable 后，深色模式下图标几乎看不见。
+**根因**：原 SVG 写死 `fill="#060A26"`（深蓝）。原样转换后图标颜色被钉死，不跟随主题；深蓝贴在 `#1A1A1A` 背景上对比度极低。
+**解法**：转换时把 `fill` 改成 `#FF000000`（不透明黑），**并在 Compose 侧显式传 `tint = MiuixTheme.colorScheme.onSurface`**。
+**注意**：Material 图标（`Icons.Rounded.*`）自带主题色不用 tint；换成 `painterResource` 后 **tint 必须手写**，否则颜色就固定成 XML 里的值了。
+**教训**：任何外部 SVG 进项目，先查 `fill` 是写死还是 `currentColor`。写死的一律改成占位色 + Compose tint，这是唯一能让图标同时适配浅色/深色的做法。
+
 ---
 
 ## 文档 / 图谱
