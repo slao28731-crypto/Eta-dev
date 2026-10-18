@@ -119,7 +119,8 @@ push main / 手动触发
   → JDK 25 (temurin)
   → Gradle (cache-provider: basic)
   → Android SDK: licenses + platforms;android-37.0 (--channel=3) + ndk;30.0.16248370
-  → keytool 临时生成 JKS（RSA 4096，10 年）
+  → 从 Secret 还原固定 keystore（base64 → eta-release.jks）
+  → keytool 校验可读并打印 SHA-256 指纹
   → ./gradlew :app:assembleDebug :app:assembleRelease
   → apksigner verify
   → upload-artifact: eta-apk-<sha>（保留 30 天）

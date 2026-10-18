@@ -86,8 +86,8 @@
 
 ### P040 · 新包装不上，提示签名冲突
 **现象**：`INSTALL_FAILED_UPDATE_INCOMPATIBLE`。
-**根因**：换了签名证书。CI 每次构建临时生成 keystore，签名会变。
-**解法**：要长期覆盖升级，把固定 keystore 存成 Actions Secret（`ETA_RELEASE_KEYSTORE_BASE64` + 三个口令），并在 workflow 里还原。否则只能卸载重装（丢数据）。
+**根因**：换了签名证书。本仓库现已改用固定 keystore（Actions Secret），不会再出现这个问题。若仍复现，说明 Secret 里的 base64 被替换过，或本地装的是早期临时签名版本。
+**解法**：keystore 已固定在 Actions Secrets，正常不会再发生。要换证书时代价见 P040。
 
 ### P041 · release 构建出来没签名
 **现象**：`apksigner verify` 失败，或产物是 unsigned。

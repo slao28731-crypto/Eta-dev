@@ -43,3 +43,6 @@ google-services.json
 # Graphify 本地缓存与查询日志
 .graphify_cache/
 .graphifyignore
+
+# 签名密钥与推送脚本：含明文口令，绝不入库
+.keys/

@@ -38,7 +38,8 @@ ETA_RELEASE_KEY_PASSWORD
 
 | 特性 | 做法 |
 |---|---|
-| 零 Secret 依赖 | 每次构建用 `keytool` 临时生成 JKS（RSA 4096，10 年，`CN=Eta Dev`） |
+| 零硬编码 | keystore 以 base64 存于 Actions Secret `ETA_RELEASE_KEYSTORE_BASE64`，另三个口令各存一个 Secret |
+| 签名稳定 | 同一 keystore 长期复用，支持覆盖升级 |
 | 双产物 | `assembleDebug` + `assembleRelease` 都编译 |
 | 自动校验 | `apksigner verify --print-certs` 打印证书指纹 |
 | 产物命名 | 保留 Gradle 的 `Eta-v<version>+<sha>.apk` |
@@ -48,29 +49,38 @@ ETA_RELEASE_KEY_PASSWORD
 
 **正面**：
 
-- 开箱即用，不需要配置任何 Secret
-- push 就出包，约 10 分钟
+- 无需在本地搭 JDK25 + SDK37 + NDK30 全套环境，push 就出包，约 10 分钟
 - debug（82MB，不混淆）和 release（11MB，R8）都有
+- 签名稳定，可覆盖升级
 
 **负面**：
 
-- **签名每次构建都变** → 无法覆盖升级，每次装新版要卸载（丢数据）
+- 签名依赖 Secret 完整性：keystore Secret 被误删或覆盖，就会造出签名不同的包
 - 没有 GitHub Release，只能从 Actions Artifacts 手动下载
 
-## 后续
+## 签名方案（已落地）
 
-要解决签名问题（见 `docs/PROGRESS.md` 高优先级待办）：
+一次性生成固定 keystore：
 
-1. 本地生成固定 keystore：
-   ```bash
-   keytool -genkeypair -keystore eta-release.jks -storetype JKS \
-     -alias eta -keyalg RSA -keysize 4096 -validity 10950 \
-     -dname "CN=Eta Dev, O=EtaDev, C=CN"
-   ```
-2. base64 编码：`base64 -w0 eta-release.jks`
-3. 存进 Actions Secret：`ETA_RELEASE_KEYSTORE_BASE64`
-4. 修改 workflow，把"生成临时证书"步骤换成"从 Secret 还原"
-5. **把 keystore 文件本身离线备份好，丢了就永久无法覆盖升级**
+```bash
+keytool -genkeypair -keystore eta-release.jks -storetype JKS \
+  -alias eta -keyalg RSA -keysize 4096 -validity 10950 \
+  -storepass "<口令>" -keypass "<口令>" \
+  -dname "CN=Eta Dev, OU=Modified, O=EtaDev, L=Unknown, ST=Unknown, C=CN"
+```
+
+四个 Secret 已写入仓库：
+
+| Secret | 内容 |
+|---|---|
+| `ETA_RELEASE_KEYSTORE_BASE64` | `base64 -w0 eta-release.jks`，5212 字符 |
+| `ETA_RELEASE_STORE_PASSWORD` | keystore 口令 |
+| `ETA_RELEASE_KEY_ALIAS` | `eta` |
+| `ETA_RELEASE_KEY_PASSWORD` | key 口令 |
+
+证书指纹 `SHA256: C9:73:FE:C3:B2:DD:29:6F:23:A5:54:1A:FA:B9:1C:B5:49:2B:5C:7A:14:70:4E:07:8B:AA:96:AA:1E:42:1F:0A`，有效期至 2056-10-10。
+
+**keystore 不可再生**：离线至少备份三份（本地 `/sdcard/Download/eta_out/eta-release.jks`、网盘、邮箱）。丢了就只能卸载重装。
 
 ## 相关
 

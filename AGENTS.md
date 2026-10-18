@@ -137,9 +137,18 @@ ETA_RELEASE_STORE_FILE / ETA_RELEASE_STORE_PASSWORD
 ETA_RELEASE_KEY_ALIAS  / ETA_RELEASE_KEY_PASSWORD
 ```
 
-当前 CI 每次构建**临时生成**证书（`CN=Eta Dev`，RSA 4096，10 年）。
-换证书 = 老用户无法覆盖升级，必须卸载重装（会丢全部数据）。
-要长期覆盖升级，得把固定 keystore 存成 Actions Secret。
+当前 CI 使用**固定 keystore**（base64 存于 Actions Secrets），每次构建签名完全一致，可覆盖升级。
+
+```
+Secret 名                         值
+ETA_RELEASE_KEYSTORE_BASE64      eta-release.jks 的 base64
+ETA_RELEASE_STORE_PASSWORD       <- 见本地备份>
+ETA_RELEASE_KEY_ALIAS            eta
+ETA_RELEASE_KEY_PASSWORD         <- 见本地备份>
+```
+
+**keystore 是唯一且不可再生的**：丢了就无法发布可覆盖升级的新版本，老用户只能卸载重装（丢全部数据）。
+离线备份必须至少三份（本地 / 网盘 / 邮箱）。证书 SHA-256：`C9:73:FE:C3:B2:DD:29:6F:23:A5:54:1A:FA:B9:1C:B5:49:2B:5C:7A:14:70:4E:07:8B:AA:96:AA:1E:42:1F:0A`，有效期至 2056-10-10。
 
 ### 3.5 Room 数据库迁移不可回滚
 

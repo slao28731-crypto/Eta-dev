@@ -1,7 +1,7 @@
 name: Build APK (self-signed)
 
-# 二改构建流水线：不依赖任何仓库 Secret，自动生成签名证书。
-# 产出的 release APK 可用于真机安装与覆盖升级（同一证书长期有效）。
+# 二改构建流水线：使用仓库 Secret 中的固定签名证书，保证每次构建签名一致，
+# 从而支持覆盖升级（不会丢数据）。证书丢失即无法发布可升级的新版本。
 
 on:
   push:
@@ -57,33 +57,34 @@ jobs:
         shell: bash
         run: sdkmanager "ndk;30.0.16248370"
 
-      - name: 生成签名证书
+      - name: 还原固定签名证书
         shell: bash
         env:
-          KS_PASS: ${{ secrets.ETA_RELEASE_STORE_PASSWORD }}
+          KEYSTORE_B64: ${{ secrets.ETA_RELEASE_KEYSTORE_BASE64 }}
+          STORE_PASS: ${{ secrets.ETA_RELEASE_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ETA_RELEASE_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ETA_RELEASE_KEY_PASSWORD }}
         run: |
-          # 仓库未配置 Secret 时使用固定口令；证书随 runner 临时生成，仅本次构建有效
-          STORE_PASS="${KS_PASS:-eta123456}"
-          keytool -genkeypair \
-            -keystore "$RUNNER_TEMP/eta-dev.jks" \
-            -storetype JKS \
-            -alias eta \
-            -keyalg RSA \
-            -keysize 4096 \
-            -validity 10950 \
-            -storepass "$STORE_PASS" \
-            -keypass "$STORE_PASS" \
-            -dname "CN=Eta Dev, OU=Modified, O=EtaDev, L=NA, S=NA, C=CN"
-          echo "STORE_PASS=$STORE_PASS" >> "$GITHUB_ENV"
-          echo "STORE_FILE=$RUNNER_TEMP/eta-dev.jks" >> "$GITHUB_ENV"
+          set -euo pipefail
+          if [[ -z "${KEYSTORE_B64}" ]]; then
+            echo "::error::缺少 Secret ETA_RELEASE_KEYSTORE_BASE64，无法生成可覆盖升级的签名"
+            exit 1
+          fi
+          echo "${KEYSTORE_B64}" | base64 -d > "$RUNNER_TEMP/eta-release.jks"
+          # 立刻验证证书可读，避免编译到一半才发现口令错
+          keytool -list -keystore "$RUNNER_TEMP/eta-release.jks" \
+            -storepass "${STORE_PASS}" -alias "${KEY_ALIAS}" > /dev/null
+          echo "证书已还原，SHA-256 指纹："
+          keytool -list -v -keystore "$RUNNER_TEMP/eta-release.jks" \
+            -storepass "${STORE_PASS}" -alias "${KEY_ALIAS}" | grep -E 'SHA256:|Valid from' || true
 
       - name: 构建 APK
         shell: bash
         env:
-          ETA_RELEASE_STORE_FILE: ${{ runner.temp }}/eta-dev.jks
-          ETA_RELEASE_STORE_PASSWORD: ${{ env.STORE_PASS }}
-          ETA_RELEASE_KEY_ALIAS: eta
-          ETA_RELEASE_KEY_PASSWORD: ${{ env.STORE_PASS }}
+          ETA_RELEASE_STORE_FILE: ${{ runner.temp }}/eta-release.jks
+          ETA_RELEASE_STORE_PASSWORD: ${{ secrets.ETA_RELEASE_STORE_PASSWORD }}
+          ETA_RELEASE_KEY_ALIAS: ${{ secrets.ETA_RELEASE_KEY_ALIAS }}
+          ETA_RELEASE_KEY_PASSWORD: ${{ secrets.ETA_RELEASE_KEY_PASSWORD }}
         run: |
           ./gradlew --no-daemon --no-configuration-cache --stacktrace \
             -Peta.buildMetadata=${GITHUB_SHA::7} \

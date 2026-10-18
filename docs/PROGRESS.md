@@ -9,7 +9,7 @@
 | 上游版本 | Eta v3.3.1（commit `2314aa90`） |
 | 导入日期 | 2026-10-18 |
 | 仓库 | `slao28731-crypto/Eta-dev`（public） |
-| 签名 | 自建证书 `CN=Eta Dev`，RSA 4096，10 年有效（每次 CI 临时生成） |
+| 签名 | 固定证书 `CN=Eta Dev`，RSA 4096，SHA384withRSA，有效期至 2056-10-10（keystore 存于 Actions Secrets） |
 | 代码量 | 543 个 Kotlin 文件 / 105,111 行 |
 
 ## 已完成
@@ -22,6 +22,7 @@
 - [x] **2026-10-18** 引入 Graphify 0.9.92，建立代码图谱（11899 节点 / 36925 边 / 436 社区，零 API 费用）
 - [x] **2026-10-18** 安装 graphify skill 到 `.agents/skills/graphify/`
 - [x] **2026-10-18** 编写交接文档：`AGENTS.md` + `docs/ARCHITECTURE.md`、`PITFALLS.md`、`MODULES.md`、`CONVENTIONS.md`、`PROGRESS.md`
+- [x] **2026-10-18** 固定签名证书：生成 `eta-release.jks`（RSA 4096 / SHA384withRSA / 有效期至 2056-10-10），四个 Secret 已写入仓库，workflow 改为从 Secret 还原，支持覆盖升级
 
 ## 进行中
 
@@ -31,7 +32,8 @@ _暂无_
 
 ### 高优先级
 
-- [ ] **固定签名证书**：当前 CI 每次临时生成 keystore，无法覆盖升级。需要把固定 keystore 转 base64 存成 Actions Secret（`ETA_RELEASE_KEYSTORE_BASE64`），并在 workflow 里解码还原
+- [ ] **校验固定签名的首次云端构建**：推送后确认 Actions 日志里打印的 SHA256 指纹为 `C9:73:FE:...:1F:0A`，且 apksigner verify 通过
+- [ ] **keystore 离线三份备份**：`eta-release.jks` + 密码文本，分别存手机本地、网盘、邮箱（文件不可再生）
 - [ ] **真机功能验证**：在目标设备上验证 Xposed 模块加载、无障碍服务、终端、MCP 连通
 - [ ] **确定二改方向**：明确要改什么功能（改 UI？加工具？换 Provider？改 hook 目标 ROM？）
 

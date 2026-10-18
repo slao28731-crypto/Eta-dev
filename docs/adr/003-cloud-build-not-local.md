@@ -67,7 +67,7 @@ timeout-minutes: 90
   → android-actions/setup-android
   → sdkmanager --channel=3 "platforms;android-37.0"
   → sdkmanager "ndk;30.0.16248370"
-  → keytool 临时签名
+  → 从 Secret 还原固定 keystore（base64 → eta-release.jks）
   → ./gradlew :app:assembleDebug :app:assembleRelease
   → apksigner verify
   → upload-artifact
