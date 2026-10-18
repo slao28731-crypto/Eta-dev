@@ -907,6 +907,8 @@ private fun AgentChatBottomBar(
     onRemoveFileReference: (String) -> Unit,
     onCancelMessageEdit: () -> Unit,
 ) {
+    // 底栏的模糊背板、渐隐、实底三层都必须与页面底色同源，否则深色下底栏会比聊天区更黑。
+    val surfaceColor = appPageBackgroundColor()
     Column(
         modifier = Modifier
             .fillMaxWidth()
