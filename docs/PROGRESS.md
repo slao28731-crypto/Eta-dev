@@ -32,6 +32,10 @@
 - [x] **2026-10-18** 深色卡片底色修复（方案 B）：展开时按 `paneProgress` 把卡片从 `background`(`#000000`) lerp 到 `surfaceContainer`(`#242424`)，关闭时系数归 0 保持原底色。同时 `ForegroundShadow` 12→16dp、加 0.5dp hairline 描边（alpha 随 progress），因为两层同色后只能靠圆角+阴影+描边表达层次。浅色零影响（两色本来就是同一档浅色）
 - [x] **2026-10-18** 建 `demo/dark-card-color.html`：四档提亮比例（0% / 50% / 72% / 100%）可实时切换的深色对比页，含灰阶差、色带位置、缺陷标注
 - [x] **2026-10-18** 修 P074 第一次修复无效的问题：`AgentAppShell` 的 `Scaffold` 缺 `containerColor`，默认 `background`（纯黑）盖住了侧栏画的底色。新增 `LocalPageBackgroundColor` CompositionLocal，侧栏下传当前底色、壳层 Scaffold 接收，三处联动才生效。排查靠截图取色（卡片主体 `#000000`、底部输入栏 `#242424`）
+- [x] **2026-10-18** 深色三级配色定稿（用户用 `demo/dark-palette.html` 调色台拍板）：抽屉 `#0F0F0F` / 页面 `#1A1A1A` / 卡片 `#343434`，ΔL 10.5%。新增统一入口 `appCardSurfaceColor(fallback)`，改 7 个文件：主题构造覆写 `background`、聊天气泡 / 建议卡片 / 思考卡 / 运行记录卡全部走统一入口、抽屉压暗。层次方向纠正为「后暗前亮」
+- [x] **2026-10-18** 修浅色回归：`appCardSurfaceColor()` 初版无参、浅色回落 `surfaceContainerHigh`，把建议卡片刷成浅灰、与页面分不开。改为接受 `fallback` 参数，各卡片回落**各自的上游层级**（气泡 `surfaceContainerHigh`、建议/思考/运行记录 `surface`）。底部输入框撤出统一入口，恢复上游 `surfaceContainer`（浅色 `#E8E8E8`）
+- [x] **2026-10-18** 修抽屉卡片底部灰带（P076）：`ForegroundShadow` 16dp 退回上游 12dp；0.5dp hairline 描边改为仅深色绘制（上游本来没有这条线）；删除已失效的 `pageBackgroundColor` lerp 与 `DarkPageLift` 常量。用户真机验收通过
+- [x] **2026-10-18** 建 `demo/dark-palette.html`：深色配色调色台。页面色 / 卡片色双滑块 + 三种分离模式（实心色 / 半透明白 / 只描边）+ 实时 ΔL 读数 + 隐藏气泡底对比开关 + 一键复制色值
 
 ## 进行中
 
