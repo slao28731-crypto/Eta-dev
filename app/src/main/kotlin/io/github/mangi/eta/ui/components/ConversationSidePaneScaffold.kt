@@ -33,8 +33,8 @@ import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.Layout
@@ -72,22 +72,12 @@ private object ConversationPaneMetrics {
     /**
      * 前景卡片展开时的阴影，用边缘层次代替黑色遮罩。
      *
-     * 提到 16dp 是因为深色下卡片底色被提亮到与抽屉同色（见 [DarkPageLift]），
-     * 两层颜色一致时只剩圆角和阴影能表达层次，阴影太弱会糊成一片。
+     * 保持上游原值 12.dp。曾被提到 16dp，理由是"深色下卡片与抽屉同色，只能靠阴影分层"；
+     * 但那个前提已经不存在了：现在抽屉 #0F0F0F、页面 #1A1A1A，颜色本身就分得开。
+     * 16dp 在浅色下会在卡片下缘糊出一大片 #C6C6C6 的灰带，与 scaleY 0.97 露出的
+     * 12dp 边叠在一起，看起来像多层叠影，所以退回原值。
      */
-    val ForegroundShadow = 16.dp
-    /**
-     * 深色下页面底色向抽屉底色提亮的比例。
-     *
-     * 已停用（0f）。这段插值原本是为了解决"纯黑卡片浮在 #242424 抽屉上像挖了个洞"：
-     * 把卡片提亮到与抽屉同色，层次改由圆角 + 阴影承担。
-     *
-     * 现在页面底色在主题层被统一成 #1A1A1A，抽屉反过来压暗到 #0F0F0F，
-     * 层次从"后亮前暗"纠正成"后暗前亮"，挖洞问题从根上消失了。
-     * 此时若继续插值，展开时页面会从 #1A1A1A 漂到 #242424，
-     * 用户选定的底色在开合过程中自己变，所以关掉。
-     */
-    const val DarkPageLift = 0f
+    val ForegroundShadow = 12.dp
     /** 允许轻微过冲，手感比临界阻尼更"活"。 */
     const val SettleDampingRatio = 0.9f
     const val SettleStiffness = 300f
@@ -180,24 +170,16 @@ fun ConversationSidePaneScaffold(
         val scope = rememberCoroutineScope()
         val focusManager = LocalFocusManager.current
         val keyboard = LocalSoftwareKeyboardController.current
-        // 卡片底色插值的两个端点：合成期只读一次，避免拖拽时反复读取 ColorScheme。
-        val pageBaseColor = MiuixTheme.colorScheme.background
-        val pageLiftColor = conversationPaneContainerColor()
-        // 深色下卡片底色随展开提亮到与抽屉同色（详见 ConversationPaneMetrics.DarkPageLift）。
-        // 浅色下 background 与 surfaceContainer 同为浅色，lerp 结果不变，因此对浅色零影响；
-        // 关闭时 progress = 0，插值系数为 0，底色回到原值，纯黑模式的关闭态观感不变。
-        val pageBackgroundColor = lerp(
-            pageBaseColor,
-            pageLiftColor,
-            paneProgress * ConversationPaneMetrics.DarkPageLift,
-        )
-        // 卡片边缘的高光色。深色下用亮色 hairline，浅色下用暗色 hairline，
-        // 保证两种主题下这条描边都是"往看得见的方向偏一档"，而不是单纯变脏。
-        val pageEdgeColor = if (pageBaseColor.luminance() > 0.5f) {
-            MiuixTheme.colorScheme.outline
-        } else {
-            MiuixTheme.colorScheme.onSurface
-        }
+        // 卡片底色直接取页面底色。
+        // 历史上这里做过「按展开进度向抽屉色插值」的 lerp，目的是消除"纯黑卡片浮在
+        // #242424 抽屉上像挖洞"。现在层次改由三级配色承担（抽屉 #0F0F0F / 页面 #1A1A1A /
+        // 卡片 #343434），插值既没必要，还会让页面在开合过程中自己变色，已删除。
+        val pageBackgroundColor = MiuixTheme.colorScheme.background
+        // 卡片边缘的高光色，仅深色下使用。
+        // 浅色下上游本来就没有这条描边，加了只会让卡片四边多出一圈浅灰细线，
+        // 与「浅色保持上游原样」的目标冲突，所以浅色不画（见下方 border 的 if 判断）。
+        val pageEdgeColor = MiuixTheme.colorScheme.onSurface
+        val isLightTheme = pageBackgroundColor.luminance() > 0.5f
         val closePane: () -> Unit = {
             currentHapticFeedback.performHapticFeedback(HapticFeedbackType.GestureEnd)
             focusManager.clearFocus()
@@ -304,7 +286,10 @@ fun ConversationSidePaneScaffold(
                             // 因为深色下 shadowElevation 常被 ROM 削弱，描边是更可靠的层次来源。
                             .border(
                                 width = 0.5.dp,
-                                color = pageEdgeColor.copy(alpha = 0.10f * paneProgress),
+                                // 只在深色下画：浅色上游没有这条线，加了会让卡片四边多出一圈浅灰细线。
+                                // 深色下 shadowElevation 常被 ROM 削弱，这条 hairline 是更可靠的层次来源。
+                                color = if (isLightTheme) Color.Transparent
+                                else pageEdgeColor.copy(alpha = 0.10f * paneProgress),
                                 shape = RoundedCornerShape(FOREGROUND_CORNER_DP),
                             ),
                     ) {
