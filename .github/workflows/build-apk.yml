@@ -129,7 +129,17 @@ jobs:
             :app:assembleDebug :app:assembleRelease 2>&1 | tee "$RUNNER_TEMP/build.log"
           rc=${PIPESTATUS[0]}
           echo "gradle exit=$rc"
-          grep -nE "^e: |error:|Unresolved|Cannot|FAILURE" "$RUNNER_TEMP/build.log" | head -80 || true
+
+          # 日志下载接口需要 admin 权限，artifact 下载需要 token，都取不到。
+          # 退而求其次：把前几条 `e:` 错误写进 workflow annotation——
+          # 这个走 check-run 的 output，公开可读。
+          mapfile -t ERRS < <(grep -E "^e: " "$RUNNER_TEMP/build.log" | head -12)
+          if [[ ${#ERRS[@]} -eq 0 ]]; then
+            mapfile -t ERRS < <(grep -nE "error:|Unresolved reference|Cannot|FAILURE:" "$RUNNER_TEMP/build.log" | head -12)
+          fi
+          for line in "${ERRS[@]}"; do
+            echo "::error title=GRADLE::$line"
+          done
           exit $rc
 
       # 临时步骤：编译失败时把日志带出来。日志接口需要 admin 权限，
