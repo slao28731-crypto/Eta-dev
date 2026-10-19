@@ -30,15 +30,33 @@
 2. **单文件必须 ≤64,000 字符**：`skills_read` / `skills_read_resource` 的 `maxChars` 上限是 64,000。原 `cheatsheet.md` 274,602 字（只能读 23%）、原 `reverse-engineering/SKILL.md` 26,717 字（默认 16,000 只读 60%），已按主题切成 11 份，全部 11,616~49,504 字。**加新 reference 前先量字符数。**
 3. **`defaultEnabled` 默认 true**：`SkillRuntime.kt` 的 `BuiltinSkillAsset` 新增该字段，manifest 不写就是 true（保持既有三个内置 skill 行为不变），`re-pc` 显式写 `false`。`seedMissingBuiltins` 已从写死 `enabled = true` 改为读该字段。
 
-**APK 分析工具链（本轮补齐）**
+**APK 分析工具链（本轮补齐，含一次真实故障修正）**
 
-`LinuxApkAnalysisInstaller` 原本只装 jadx/apktool/smali/baksmali，且 wrapper 写死 `b|build` 直接报 `APKTOOL_BUILD_UNAVAILABLE`。现已解掉：
+`LinuxApkAnalysisInstaller` 原本只装 jadx/apktool/smali/baksmali，且 wrapper 写死 `b|build` 直接报 `APKTOOL_BUILD_UNAVAILABLE`。
 
-- wrapper 不再拦截 build，改为自动追加 `--aapt /usr/local/bin/aapt2-wrapper`
-- `aapt2-wrapper` 是新增文件：apktool 会把 aapt2 复制到 `/tmp` 再执行，复制丢 x 位，报 `Syntax error: "(" unexpected`，wrapper 用 `exec /usr/bin/aapt2` 绕过
-- 安装命令追加 `aapt2 apksigner`（Debian）/ `aapt2`（Alpine）
-- `APK_ANALYSIS_REVISION` 1 → 2，已装环境会重走安装补齐
-- 验证步骤新增 `aapt2-wrapper version` 检查（失败码 87）
+**第一次提交 `a8ab78a` 引入了故障**：我把 `aapt2` 当独立包名写进 apt 命令，但 Debian 里 **`aapt2` 不是包名**，它由 `android-sdk-build-tools` 提供。整条 `eta-apt install openjdk-25-jdk-headless aapt2 apksigner` 因 `Unable to locate package aapt2` 失败，用户看到的现象是「安装 OpenJDK 25 失败」——但 `apt-cache policy` 显示 **java 25 其实早已装成功**（`25.0.4.1+1-1~deb13u1`），失败的只是同一条命令里的后续步骤。
+
+**已修（`c0` 之后的提交）**：包名改为 `android-sdk-build-tools`。
+
+**实测结论（重要，别再走错）**
+
+| 能力 | 状态 | 说明 |
+|---|---|---|
+| `apktool d` 解包 | ✅ 跑通 | 拿当前 APK 实测，Manifest + smali + res 全部正常产出 |
+| `jadx` 反编译 | ✅ 跑通 | 6391 个 Java 文件 / 37MB |
+| `baksmali` dex→smali | ✅ 跑通 | 8.9MB dex 成功反汇编 |
+| `smali` smali→dex | ✅ 跑通 | 重组回 8.9MB dex |
+| `apksigner` 签名 | ✅ 跑通 | keystore 自签 + 14MB APK 产出 |
+| **`apktool b` 资源回编译** | ❌ **走不通** | Debian `aapt2` 只有 **2.19**，apktool 3.0.3 传 `--no-compile-sdk-metadata` 报 `unknown option` |
+
+**所以逆向闭环走这条**（已实测）：
+
+```
+apktool d 解包 → baksmali 反汇编 → 改 smali → smali 重组 dex
+→ zip 替换进 APK → apksigner 签名 → pm install
+```
+
+**不要**教用户用 `apktool b` 回编译资源——版本链不匹配，硬试必失败。这条已写进 `re-mobile/SKILL.md` 第 8 步的「路线 A / 路线 B」和 `AgentPromptBuilder` 的提示里。
 
 另外两类工具已手工装进用户的 Debian rootfs，**重装 APK 不会丢，但换设备要重装**：
 
@@ -46,7 +64,7 @@
 binutils 2.44          readelf/objdump/nm/strings/addr2line/size
 bsdextrautils 2.41     hexdump
 xxd 9.1                xxd
-aapt2 2.19 + apksigner 0.9
+aapt2 2.19 + apksigner 0.9    （android-sdk-build-tools 提供）
 capstone 5.0.7         pip --break-system-packages
 lief 1.0.0             pip --break-system-packages
 ```
@@ -142,7 +160,8 @@ Agent 自己就能添加 MCP 服务器，不需要用户进设置页。6 个工�
 2. 打开 `re-pc` 开关 → 索引里出现，description 不被截断
 3. 对 agent 说「帮我分析这个 APK」，应直接 `apktool d` + `jadx`，不再教用户装工具
 4. 说「改完帮我回编译」，应走 `--aapt /usr/local/bin/aapt2-wrapper` + `apksigner`
-5. **需要重进一次 设置 → 终端 → Linux 环境 → APK 分析工具**，让 revision 2 重装补上 aapt2
+5. **不用重装环境**。我已直接改好现有 rootfs 里的 `apktool` wrapper 和 `aapt2-wrapper`，工具链当场可用（`apktool --version` 正常、`baksmali`/`smali`/`apksigner` 全部实测通过）。
+6. 但**建议仍重装一次 APK 分析工具**，让 profile 标记从 `1` 升到 `2`，否则下次换设备还得手动补。
 
 **下一步可选方向**（用户未指定，不要主动开工）
 

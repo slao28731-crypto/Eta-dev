@@ -311,7 +311,36 @@ python3 -m pip install --break-system-packages --ignore-installed lief pyaxmlpar
 
 ---
 
-## 文档 / 图谱
+## P088 · 写错 apt 包名，导致「安装 OpenJDK 25 失败」这个误导性报错
+
+**现象**：用户在 设置 → 终端 → Linux 环境 → APK 分析工具 点安装，界面显示「安装 OpenJDK 25 失败，可以稍后重试」。
+**实际状态**：`apt-cache policy openjdk-25-jdk-headless` 显示 `Installed: 25.0.4.1+1-1~deb13u1` —— **java 25 早就装好了**，`java -version` 也正常输出。界面报的错和真实原因完全无关。
+**根因**：我在 `linuxApkJavaInstallCommand` 里写了 `eta-apt install openjdk-25-jdk-headless aapt2 apksigner`。Debian 里**没有叫 `aapt2` 的包**，它由 `android-sdk-build-tools` 提供。apt 遇到不存在的包名会整条命令失败（`Unable to locate package aapt2`），但 `LinuxApkAnalysisInstaller` 的失败上报只区分阶段（`INSTALLING_JAVA`），于是把「包装不上」笼统归到「Java 装不上」。
+**解法**：包名改成 `android-sdk-build-tools`。
+**教训**：
+1. **apt 的包名不能猜。** 写进安装命令前必须 `apt-cache policy <pkg>` 或 `apt-cache search <keyword>` 验证一遍。`aapt2` 是可执行文件名，`android-sdk-build-tools` 才是包名——这种「文件名 ≠ 包名」的错配在 Debian 里非常常见。
+2. **失败上报要能定位到具体包。** 现在 `INSTALLING_JAVA` 这个阶段名把「java 装失败」和「和 java 一起装的东西失败」混在一起，用户看到的报错和真相差了一个层级。更好的做法是让 `eta-apt` 的输出透传到 UI，或者把安装命令拆成多条、逐条上报。
+
+---
+
+## P089 · Debian 的 aapt2 只有 2.19，配不上 apktool 3.x
+
+**现象**：绕过 wrapper 拦截后执行 `apktool b`，报：
+```
+W: unknown option '--no-compile-sdk-metadata'.
+W: aapt2 link [options] -o arg --manifest arg files...
+```
+**根因**：`apt-cache policy aapt` 显示 Debian trixie 只提供 `1:14~beta1-3`（aapt2 报自己 2.19）。apktool 3.0.3 在 link 阶段会传 `--no-compile-sdk-metadata`，这个参数是 Android SDK 8.0+ 才有的。**Debian 仓库的 aapt2 停在 2.19，无论如何 apt 都到不了 8.0。**
+**已验证的部分**：`aapt2-wrapper` 本身是生效的 —— 报错的命令行是 `[/usr/local/bin/aapt2-wrapper, compile, ...]`，说明 wrapper 被正确调用、x 位问题已解。卡住的是 aapt2 版本。
+**解法**：改走 dex 直换。**实测完整跑通**：
+```
+apktool d → baksmali d → 改 smali → smali a → zip 替换 dex → apksigner sign → pm install
+```
+8.9MB dex 反汇编 → 重组 → 替换 → 签名 → 14MB APK，全程无报错。
+**要真正恢复资源回编译**，只能换 aapt2 来源：Google Maven 的 `com.android.tools.build:aapt2:<ver>-<build>-linux.jar` 里含 ARM64 版 `aapt2` 二进制，解出来替换 `/usr/bin/aapt2`。
+**教训**：**「装着这个工具」和「这个工具版本够用」是两件事。** 装包前先 `--version`，版本对不上就换路子，不要在 `--copy-original`、改 public.xml 这些下游变量上反复试——它们改不掉版本断层。另外 `aapt` 这个包名给的是 **aapt2 2.19**，版本号体系和 Android SDK 的 aapt2 不是一套，容易误判。
+
+---
 
 ### P060 · `graphify extract` 扫不到文件
 **现象**：节点数远少于预期。

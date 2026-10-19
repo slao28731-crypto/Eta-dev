@@ -45,10 +45,16 @@ internal fun linuxApkAnalysisReady(rootfs: File): Boolean {
     }
 }
 
+/**
+ * Debian 的 aapt2 不是独立包，由 android-sdk-build-tools 提供；单独写 aapt2 会让整条 apt 命令
+ * 以 "Unable to locate package" 失败，连带 java 之后的步骤全部中断（现象就是设置页报
+ * "安装 OpenJDK 25 失败"，但实际 java 早已装好）。
+ */
 internal fun linuxApkJavaInstallCommand(distribution: LinuxDistribution): String =
     when (distribution) {
         LinuxDistribution.ALPINE -> "/usr/local/bin/eta-apk install openjdk25-jdk aapt2"
-        LinuxDistribution.DEBIAN -> "/usr/local/bin/eta-apt install openjdk-25-jdk-headless aapt2 apksigner"
+        LinuxDistribution.DEBIAN ->
+            "/usr/local/bin/eta-apt install openjdk-25-jdk-headless android-sdk-build-tools apksigner"
     }
 
 /** 为当前 Linux 发行版安装 Java 分析工具与 ARM64 aapt2；apktool build 走 aapt2-wrapper 回编译。 */

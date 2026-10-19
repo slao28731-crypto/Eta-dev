@@ -11,11 +11,15 @@ description: Android/iOS 逆向与游戏分析方法论。APK/IPA 拆解、jadx 
 
 | 你要做的事 | 环境参数 | 用什么 | 状态 |
 |---|---|---|---|
-| APK 解包 / 回编译 / 反编译 | `environment=linux` | `apktool` `jadx` `smali` `baksmali` `aapt2` `apksigner` | 已装 |
-| 分析 `.so` / ELF | `environment=linux` | `readelf` `objdump` `nm` `strings` `file` `hexdump` `xxd` | 已装 |
-| 写脚本解析汇编、改 ELF | `environment=linux` | `python3` + `capstone` + `lief` | 已装 |
-| 抓包 / 改包 | `environment=linux` | `python3` `curl` `openssl` `node` | 部分，见下 |
-| Android 系统命令 | `environment=android` + `identity=root` | `pm` `am` `dumpsys` `input` `screencap` `getprop` `cmd` | 已装 |
+| APK 解包（`apktool d`） | `environment=linux` | `apktool 3.0.3` | ✅ 已实测可用 |
+| APK 反编译成 Java | `environment=linux` | `jadx 1.5.6` | ✅ 已实测可用（6391 个 Java 文件 / 37MB） |
+| dex ↔ smali 互转 | `environment=linux` | `baksmali` / `smali 3.0.10` | ✅ 已实测可用（8.9MB dex 往返成功） |
+| APK 签名 | `environment=linux` | `apksigner 0.9` | ✅ 已实测可用 |
+| **APK 资源回编译** | — | `aapt2 2.19` + `apktool 3.0.3` | ❌ **走不通**，版本不匹配，见第 8 步路线 B |
+| 分析 `.so` / ELF | `environment=linux` | `readelf` `objdump` `nm` `strings` `file` `hexdump` `xxd` | ✅ 已实测可用（binutils 2.44） |
+| 写脚本解析汇编、改 ELF | `environment=linux` | `python3 3.14` + `capstone 5.0.7` + `lief 1.0.0` | ✅ 已实测可用 |
+| 抓包 / 改包 | `environment=linux` | `python3` `curl` `openssl` `node` | 部分可用 |
+| Android 系统命令 | `environment=android` + `identity=root` | `pm` `am` `dumpsys` `input` `screencap` `getprop` `cmd` | ✅ 已实测可用 |
 | 读写文件 / 搜代码 | 默认文件工具 | `read_file` `grep_files` `glob_files` `list_directory` | 内置 |
 
 **动手前必须先探活**，不要假设：
@@ -25,7 +29,7 @@ description: Android/iOS 逆向与游戏分析方法论。APK/IPA 拆解、jadx 
 command -v jadx apktool smali baksmali aapt2 apksigner readelf objdump
 ```
 
-如果 `jadx` 不存在 → 告诉用户「在 设置 → 终端 → Linux 环境 里安装 APK 分析工具」，**不要自己从 GitHub 下 jadx 往里塞**。
+如果 `jadx` 不存在 → 告诉用户「在 设置 → 终端 → Linux 环境 → APK 分析工具 里安装」，**不要自己从 GitHub 下 jadx 往里塞，也不要在 Linux 环境里手动 `apt install`（会和 Eta 的 profile 校验冲突）**。
 
 ---
 
@@ -269,33 +273,62 @@ Java.perform(function () {
 
 ### 第 8 步：回编译与验证（改完必须闭环）
 
-**这一步以前做不了，现在能做了。** 完整链路：
+**这一步已实测跑通，但要注意走哪条路。** 按你改了什么来选：
+
+#### 路线 A：只改 smali 逻辑（最常见，推荐）
+
+**不要走 apktool 全量回编译**。实测 Debian 的 `aapt2` 只有 2.19 版，apktool 3.0.3 会传 `--no-compile-sdk-metadata` 参数，老版本 aapt2 不认识，直接报 `unknown option`。这条路当前不通。
+
+走 dex 直换，**已实测完整跑通**（8.9MB dex 反汇编 → 重汇编 → 替换 → 签名 → 14MB APK 产出）：
 
 ```bash
 cd /workspace/<项目>/
 
-# 8.1 改完 smali 之后回编译
-apktool b dec -o rebuilt.apk --aapt /usr/local/bin/aapt2-wrapper
+# 8A.1 解包拿 dex（apktool d 能正常跑，只是 b 不回编译）
+apktool d -f -o dec target.apk
+cp dec/build/apk/classes*.dex .
 
-# 8.2 签名（不改签名装不上，覆盖安装会失败）
-apksigner sign --ks my.keystore --ks-pass pass:123456 --out signed.apk rebuilt.apk
+# 8A.2 dex → smali
+baksmali d classes.dex -o smali_out
 
-# 没 keystore 就现造一个
-keytool -genkeypair -v -keystore my.keystore -alias k -keyalg RSA \
-  -keysize 2048 -validity 10000 -storepass 123456 -keypass 123456 \
-  -dname "CN=test"
+# 8A.3 改 smali（用 edit_file 或 sed）
+#     改完记得核对寄存器数：.registers 不够会 smali 编译失败
 
-# 8.3 验签
+# 8A.4 smali → dex
+smali a smali_out -o classes_new.dex
+
+# 8A.5 替换进 APK（-j 去路径，注意文件名要一致，否则会变成新增 dex）
+cp target.apk patched.apk
+zip -q -j patched.apk classes_new.dex    # 若原 dex 就叫 classes.dex，这里需重命名后替换
+
+# 8A.6 签名
+keytool -genkeypair -keystore t.jks -alias k -keyalg RSA -keysize 2048 \
+  -validity 10000 -storepass 123456 -keypass 123456 -dname "CN=t"
+apksigner sign --ks t.jks --ks-pass pass:123456 --out signed.apk patched.apk
+
+# 8A.7 验签 + 装回
 apksigner verify --print-certs signed.apk
-
-# 8.4 装回手机（走 android 环境）
 pm install -r /sdcard/xxx/signed.apk
 ```
 
-**两个已知陷阱**：
+#### 路线 B：要改资源（`res/` 里的东西）
 
-1. **`--aapt /usr/local/bin/aapt2-wrapper` 不能省**。apktool 会把 aapt2 复制到 `/tmp` 再执行，复制丢 x 位，报 `Syntax error: "(" unexpected`。wrapper 存在就是为了绕这个。
-2. **`public.xml` 里 `$` 开头的资源名**（如 `$ic_splash_animated__1`）会导致 aapt2 编译失败。这类是 apktool 解包副作用，改用 `--copy-original` 跳过资源重编。
+当前**走不通**，原因是版本链不匹配：
+
+| 组件 | 版本 | 问题 |
+|---|---|---|
+| Debian `aapt2` | **2.19**（`aapt` 包提供） | 缺 `--no-compile-sdk-metadata` 等新参数 |
+| apktool | 3.0.3 | 依赖新版 aapt2 的参数 |
+| Google 官方 aapt2 | 需 ≥ 8.0 | 才能配 apktool 3.x |
+
+**先告诉用户这个限制，不要硬试。** 如果一定要改资源，两条出路：
+1. 在电脑上用 Android SDK 的 aapt2 回编译，再把产物拷回来
+2. 等 Eta 侧换成从 Google Maven 拉 ARM64 版 aapt2（`com.android.tools.build:aapt2:*-linux.jar` 里有 `aapt2` 二进制）
+
+#### apktool 解码阶段的两个坑（这个环节是能用的）
+
+1. **`$` 开头的资源名**：`public.xml` 里会有 `$ic_splash_animated__0` ~ `__9`，这是 Compose 动画的编译产物。aapt2 编译时会报 `invalid entry name`。**实测 `--copy-original` 也绕不过**（它仍然要编译 `res/`）。只影响回编译，不影响解码。
+2. **`--aapt` 必须传 wrapper**：apktool 会把 aapt2 复制到 `/tmp` 再执行，复制丢 x 位，报 `Syntax error: "(" unexpected`。wrapper 里 `exec /usr/bin/aapt2` 才稳。
 
 ---
 
@@ -307,7 +340,10 @@ pm install -r /sdcard/xxx/signed.apk
 | `.so` 里 `strings` 全是乱码 | 字符串加密 | 上 Frida 在运行时 dump 解密后的字符串 |
 | Frida `attach` 报 `unable to find process` | 进程有反调试或 frida-server 版本不匹配 | 查版本、查 `/proc/<pid>/status` 的 TracerPid |
 | `ptrace` 一直被拒绝 | 已有别的调试器占用 / 内核限制 | 换个方式，别在同一进程上叠加 |
-| `apktool b` 报 `aapt2` 相关错 | wrapper 没指定 / 权限丢了 | 见上面「两个已知陷阱」 |
+| `apktool b` 报 `unknown option '--no-compile-sdk-metadata'` | Debian aapt2 2.19 太老，配不上 apktool 3.0.3 | 改走路线 A（dex 直换），别在资源回编译上耗 |
+| `apktool b` 报 `invalid entry name '$ic_splash_animated__N'` | Compose 动画的资源名，`$` 不被 aapt2 接受 | 同样走路线 A；`--copy-original` 绕不过 |
+| `apktool b` 报 `Syntax error: "(" unexpected` | aapt2 被复制到 /tmp 丢了 x 位 | `--aapt` 传 wrapper，不要传二进制本体 |
+| `smali` 编译报寄存器越界 | 改 smali 时加了指令但没加 `.registers` | 把 `.registers` 数字调大（多余寄存器无害） |
 | 装回手机报 `INSTALL_FAILED_UPDATE_INCOMPATIBLE` | 签名不一致 | 先卸载旧的，或换回原签名 |
 | 应用启动就闪退 | 改了 smali 破坏逻辑 / 校验没绕过 | 先只改一处最小改动验证链路通不通 |
 
