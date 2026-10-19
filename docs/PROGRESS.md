@@ -60,7 +60,7 @@
   - 代码改动：`FridaPaths` 新增 `RUNTIME_DIR` + `runtimeServerFile()`；新增 `stageServer()`（起之前复制 + chmod 755，大小一致时只补权限）；`startServer()` / `detectServerPid()` 改用 runtime 路径并先 `cd`；新增 `purgeStaleServer()` 清掉老版本跑在 filesDir 的残留（**只比 cmdline 第一个 token，整体 contains 会自杀**）；`ensureRunning()` 加 `staleForeign` 判定；`stopServer()` 也能清野生进程
   - 顺带修：中文 `values-b+zh+Hans/strings.xml` 补 7 条 `linux_frida_*` 并同步 `linux_apk_tools_ready/summary`（上一轮只改了英文）；`AgentPromptBuilder` 与 `re-mobile/SKILL.md` 的路径说明全部改成 runtime 目录
   - **已验证**：编译（CI 通过）、`stageServer()` 端到端（点「停止」→「启动」后 attach 成功）、`purgeStaleServer()`（未自伤、未报错）
-- [x] **2026-10-19** 第十四轮：修渗透组两个安装失败（TMPDIR + 四处依赖互踩）（CI run #51 绿）
+- [x] **2026-10-19** 第十四轮：修渗透组两个安装失败（TMPDIR + 四处依赖互踩）（CI run #51 绿）✅ **真机验收通过**
   - **用户真机反馈**：CLOUD 组卡在 `scoutsuite+pacu` 一直转、AD 组报 netexec 失败
   - **根因 1（最隐蔽）**：`TMPDIR=/data/user/0/com.ai.assistance.operit/cache` 是 Android 侧路径，**chroot 内看不到**。rustc 报 `couldn't create a temp dir: No such file or directory (os error 2)`。→ 所有 pip 步骤加 `export TMPDIR=/tmp`
   - **根因 2**：NetExec 的 `aardwolf` 是 pyo3 扩展，**PyPI 无 aarch64 wheel**（`pip download --only-binary :all:` 返回 `from versions: none`），必须现场编译 → 新增一步装 `rustc` + `cargo`（Debian 1.85.1）

@@ -18,6 +18,9 @@
 | **脱壳 dexdump** | ✅ **第八轮已改**：`frida-dexdump 2.0.1` 随 Frida 一起装；SKILL 删掉不存在的 ARM64 aapt2 路线、加 Root 前置判定。真机未验 |
 | **逆向分析工具组** | ✅ **第九轮已编译通过（run #35）**：z3/unicorn/apkid/objection/mitmproxy/radare2 一键装；angr 独立开关。真机未验 |
 | **外部 skill 导入** | ✅ 76+1 个单技能 ZIP 已生成到 `/sdcard/Download/eta-skills/zips/`，全部通过 Eta 安装器规则校验 |
+| **Android NDK 导入** | ✅ 第十一轮已编译通过（run #41）：支持自定义导入用户自己的 NDK tgz，多版本并存。真机未验 |
+| **Android SDK + Gradle** | ✅ 第十二轮已编译通过（run #44）：aapt2/aapt/aidl/zipalign/dexdump/adb + android.jar + Gradle 9.8.1。真机未验 |
+| **渗透工具 7 组** | ✅ **第十四轮已验收**：侦察/Web/网络/凭据/云审计/内网AD/无线，各自独立 marker。AD 组含 Rust 工具链（现场编 aardwolf） |
 
 ## 逆向 skill 内置（新增能力，待验收）
 
@@ -138,9 +141,9 @@ Agent 自己就能添加 MCP 服务器，不需要用户进设置页。6 个工�
 
 ## 下一步（最重要）
 
-**第十四轮已完成并编译通过（CI run #51，commit `e9abd58`），等真机验收。**
+**第十四轮真机验收通过**（CI run #51，commit `e9abd58` 产物）。渗透组 7 组全部装上可用。
 
-**两个失败组已修好，四个根因都实测确认：**
+**这一轮修掉的四个根因（供后人查）：**
 
 | 问题 | 根因 | 修法 |
 |---|---|---|
@@ -149,17 +152,9 @@ Agent 自己就能添加 MCP 服务器，不需要用户进设置页。6 个工�
 | （连带）mitmproxy 挂 | NetExec 把 cryptography 降到 42.0.8 | 拉回 `cryptography==47.0.0` |
 | （连带）angr 挂 | scoutsuite 把 protobuf 降到 3.20.3 | 拉回 `protobuf>=6.33` |
 
-- 装 run #51 的产物，重装 **渗透 · 内网 AD**（约 120MB，含 Rust 工具链）
-  与 **渗透 · 云与源码审计**
-- 自检：
-  ```sh
-  for t in nxc certipy mitmdump angr semgrep scout pacu aws kubectl; do
-    printf '%-12s %s\n' "$t" "$(command -v "$t" 2>/dev/null || echo MISSING)"
-  done
-  nxc --version; certipy --version; mitmdump --version | head -1
-  python3 -c "import angr; print('angr', angr.__version__)"
-  ```
-- 之前未验收的仍待验：Android SDK + Gradle、NDK 导入、77 个 skill ZIP
+**当前无进行中任务。等用户发下一道指令。**
+
+- 仍待验的旧项（用户没提，不主动推）：Android SDK + Gradle、NDK 导入、77 个 skill ZIP
 
 第五轮验收（删除 demo 目录）用户原话：「刚刚我去Github仓库看了一下，demo文件夹里面都是之前用的HTML预览图，请你删除这个文件夹和内容，以后预览图只在本地生成」。
 第六轮用户定调：「按照你推荐进行」= 530KB 全量切分 + A/C 工具组 + 解掉回编译限制。**已验收**。
@@ -512,4 +507,4 @@ git push origin clean:main
 
 ---
 
-_最后更新：2026-10-19（第八轮：frida-dexdump + SKILL 纠错 + Root 前置判定）_
+_最后更新：2026-10-19（第十四轮验收通过：渗透 7 组全部可用）_
