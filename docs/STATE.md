@@ -153,23 +153,37 @@ Agent 自己就能添加 MCP 服务器，不需要用户进设置页。6 个工�
 | （连带）angr 挂 | scoutsuite 把 protobuf 降到 3.20.3 | 拉回 `protobuf>=6.33` |
 
 **第十五轮已完成并编译通过（CI run #60，commit `95348c8`）；卡片美化 + 角色对话插话已验收。**
-
 **⚠️ 进行中：多并发 Agent 改造（用户要求方案乙）**
+
+**第 1 批已完成并编译通过（CI run #64，commit `6bdd0cdf`），等真机验收。**
 
 用户已拍板三项决策：
 1. **终端工作区共享**同一个 `/workspace`（不按会话隔离）
 2. **GUI 操作接受串行排队**（无障碍/浏览器/Frida 物理上只能一个）
 3. **分 3 批做**，每批真机验一次
 
-**第 1 批还没开始**，等用户发指令。开工前必读：
+**影响面清单**：`docs/CONCURRENT_AGENTS.md`（也放在 `/sdcard/Download/Eta并发改造-受影响功能清单.md`）
 
-- **`docs/CONCURRENT_AGENTS.md`** —— 完整影响面清单（361 行）
-- 用户下载目录也放了一份：`/sdcard/Download/Eta并发改造-受影响功能清单.md`
+**第 1 批做了什么（多 run 会话 + 主任务浮层）**：
+- `AgentRuntimeService`：`activeSession` 单值 → `activeSessions: ConcurrentHashMap`
+- `startRun()` 不再无条件 `cancel()`（这是「互相顶死」的根因）
+- 新增 `primaryRunId`：浮层只能对应一个 run，其余安静跑
+- `AgentAppState`：`currentRunId` 拆成 `observedRunIds` + `latestRunId`，
+  新增 `hasActiveRun` / `stopRun(runId)`
 
-**改动入口（第 1 批）**：
-- `AgentRuntimeService.kt:86` `activeSession` → `activeSessions: ConcurrentHashMap`
-- `AgentRuntimeService.kt:369` 删掉无条件 `cancel()`
-- `AgentAppState.kt:99` `currentRunId` 单值 → 多 run
+**第 1 批验收方法**：
+1. 装 run #64 的产物（`eta-apk-6bdd0cdf…`，34,632,139 字节）
+2. 对话 A 里让 agent 跑一个长命令（如 `sleep 120`）
+3. 切到对话 B，也发一条长命令
+4. **预期：A 不再被掐死，两条都在跑**
+5. 看完 A 的回复 → 切回 A 应能看到它在继续输出
+6. 点 B 的停止 → **只停 B，A 不受影响**
+
+**已知限制（第 2/3 批才做）**：
+- 两个 agent 同时操作界面/浏览器/Frida 会打架（串行化未做）
+- 浮层只显示主任务，看不出「还有几个在跑」
+
+
 
 **功能：运行中可继续发消息（待发送队列，方案甲，对齐 Operit）**
 
