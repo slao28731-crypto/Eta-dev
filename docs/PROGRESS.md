@@ -60,6 +60,16 @@
   - 代码改动：`FridaPaths` 新增 `RUNTIME_DIR` + `runtimeServerFile()`；新增 `stageServer()`（起之前复制 + chmod 755，大小一致时只补权限）；`startServer()` / `detectServerPid()` 改用 runtime 路径并先 `cd`；新增 `purgeStaleServer()` 清掉老版本跑在 filesDir 的残留（**只比 cmdline 第一个 token，整体 contains 会自杀**）；`ensureRunning()` 加 `staleForeign` 判定；`stopServer()` 也能清野生进程
   - 顺带修：中文 `values-b+zh+Hans/strings.xml` 补 7 条 `linux_frida_*` 并同步 `linux_apk_tools_ready/summary`（上一轮只改了英文）；`AgentPromptBuilder` 与 `re-mobile/SKILL.md` 的路径说明全部改成 runtime 目录
   - **已验证**：编译（CI 通过）、`stageServer()` 端到端（点「停止」→「启动」后 attach 成功）、`purgeStaleServer()`（未自伤、未报错）
+- [x] **2026-10-19** 第十二轮：Android SDK + Gradle（手机真能编 APK）+ dex2jar + angr CLI（CI run #44 绿）
+  - **纠正上一轮的错误结论**：我说「Android SDK 装不了」是错的。错在把「Google 不发 aarch64 版」直接推成「没得装」。看了用户给的两个真实项目（`AAswordman/Operit`、`jieapi/aicode`）才打通
+  - **两个项目的做法**：Operit 下 x86_64 cmdline-tools + 自带 `aapt2-arm64-v8a` 替换，还解压改写 Gradle 缓存里的 `aapt2-*-linux.jar`；aicode 直接用 `lzhiyong/android-sdk-tools` 的 `android-sdk-tools-static-aarch64.zip` 覆盖原生二进制，并用 `android.aapt2FromMavenOverride`。**本实现走后者**（覆盖 + override），因为不碰缓存、升级 Gradle 不失效
+  - **真机实测（PRoot 里，不是推测）**：`aapt2 version` → `2.19-OS3.0.308.0`；`adb version` → `1.0.41/35.0.2`；`gradle --version` → `9.8.1`；`gradle hi` → **BUILD SUCCESSFUL in 9s**；`aapt2 link -I android.jar` → **linked.apk (1107 字节)**
+  - **装什么**：ARM64 工具包 14MB（aapt2/aapt/aidl/zipalign/dexdump/adb/fastboot/sqlite3）+ android.jar 27MB（官方 `platform-35_r02.zip`，纯 Java 存根）+ Gradle 9.8.1 151MB（`services.gradle.org` 独立包，sha256 校验）
+  - **不装 apt 的 gradle 4.4.1**：2017 年版，不认 `plugins {}`、不认 Kotlin DSL、不认现代 AGP，只能 `--version`
+  - **dex2jar 并入 RE_LAB**：19MB，纯 Java（`d2j-dex2jar.sh` 最后一行就是 `java -classpath`）。实测 `classes.dex(880B) → out.jar(402B)`
+  - **angr CLI 接通**：angr 自带 `angr` / `angr-mcp` 两个命令，只是不在 PATH。实测 `angr decompile libz.so.1` 出完整 C 伪代码，不用写 Python
+  - **又修两处 P081**：`ANDROID_SDK_STEPS` 原本声明在 profile 之后（前向引用）→ 用脚本做块移动；`verify_re_lab_profiles.py` 的 ALL 硬编码误报
+  - **run #44 绿**，产物 `eta-apk-19b5f55…`（34,571,265 字节）
 - [x] **2026-10-19** 第十一轮：Android NDK 导入入口（方案 B）+ d8/r8 + build-tools 接 PATH（CI run #41 绿）
   - **NDK 是独立机制**：`AndroidNdkInstaller`，用户自备压缩包，**不内置任何资产**（728MB 包 / 解压 2.5GB，内置会让 APK 膨胀十倍）
   - **三条死路实测**（决定了架构）：Debian chroot 无 `/system/bin/linker64`；PRoot 看不到 `/system` 且无 bionic；sdcard 是 noexec。只有 `/data` 分区可执行（nosuid,nodev 但无 noexec）→ 装 `context.filesDir/android-ndk`

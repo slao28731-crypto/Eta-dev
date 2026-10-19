@@ -5,6 +5,64 @@
 ---
 ## 构建 / 工具链
 
+### P087 · 「Google 不发 aarch64」不等于「装不了」——先看别人怎么绕
+
+**现象**：我上一轮判定「Android SDK 装不上」，理由是查了官方
+`repository2-3.xml`，`commandlinetools-linux-*` 全是 x86_64。
+
+**错在哪**：把「官方不发」直接推成「没法装」。实际问题可以拆开解决：
+
+| 组件 | 真实情况 |
+|---|---|
+| `aapt2`/`aapt`/`aidl`/`zipalign`/`dexdump` | **社区编了 ARM64 版**（`lzhiyong/android-sdk-tools`） |
+| `adb`/`fastboot`/`sqlite3` | 同上 |
+| `android.jar` | **纯 Java 存根**，架构无关，官方 `platform-35_r02.zip` 直接拿 |
+| `d8`/`r8` | 纯 Java（r8.jar） |
+| `apksigner` | Debian 已打包 |
+| `gradle` | 纯 Java，官方独立分发包 |
+
+**参考两个真实项目的做法**：
+- `AAswordman/Operit`：下 x86_64 cmdline-tools + 自带 `aapt2-arm64-v8a` 替换，
+  再解压改写 Gradle 缓存里的 `aapt2-*-linux.jar`
+- `jieapi/aicode`：直接用 `android-sdk-tools-static-aarch64.zip` 覆盖原生二进制，
+  并用 `android.aapt2FromMavenOverride` 让 Gradle 不下载自带的 x86 aapt2
+
+**本实现走后者**：`aapt2FromMavenOverride` 写进 `gradle.properties`，不碰缓存，
+升级 Gradle 也不会失效。
+
+**实测（PRoot 里，不需要 chroot）**：
+```
+aapt2 version    → Android Asset Packaging Tool (aapt) 2.19-OS3.0.308.0
+adb version      → 1.0.41 / 35.0.2
+gradle --version → Gradle 9.8.1
+gradle hi        → BUILD SUCCESSFUL in 9s
+aapt2 link -I android.jar → linked.apk (1107 字节)
+```
+
+**教训**：遇到「某平台官方不支持」时，先去找有没有人做过移植，
+而不是直接给用户判死刑。这次用户给了两个仓库，答案就在里面。
+
+**顺带一个坑**：Debian 源里的 `gradle` 是 **4.4.1（2017 年）**，
+能在 JDK 25 上 `--version`，但不认 `plugins {}`、不认 Kotlin DSL、
+不认现代 AGP，真构建必崩。要用官方独立分发包。
+
+### P088 · angr 装了但命令找不到（第三次踩同一个坑）
+
+**现象**：`command -v angr` 返回空，但 pip 明明装成功了。
+
+**根因**：angr 自带 `angr` 与 `angr-mcp` 两个入口脚本，落在
+`/opt/eta/python/cpython-<ver>-linux-<arch>-gnu/bin`，**这个目录不在 PATH**。
+跟之前的 `aapt2`、`mitmdump` 是同一个问题（P084）。
+
+**做法**：`renderCliLinksCommand` 的软链清单里加上 `angr`。
+
+**能力**（实测）：
+```
+angr decompile   /usr/lib/aarch64-linux-gnu/libz.so.1  → 完整 C 伪代码
+angr disassemble same                                  → 汇编
+```
+不需要写 Python，命令行直接反编译 so。
+
 ### P085 · 少闭合一层 `use {}`，整个 class 被提前截断，报一堆 Unresolved reference
 
 **现象**：CI 报 20 多条 `Unresolved reference`，全是 class 自己内部的东西：
