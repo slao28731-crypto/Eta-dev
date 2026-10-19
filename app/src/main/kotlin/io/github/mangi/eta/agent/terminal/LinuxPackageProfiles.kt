@@ -669,6 +669,92 @@ internal object LinuxPackageProfiles {
         ),
     )
 
+    // ---- 渗透测试 7 组（用户提供的 48 项清单，逐条核实后分组） ----
+    //
+    // 为什么拆 7 组：全量约 900MB（清单标 1.15GB，实测偏大）。
+    // 一次装完时第 40 项失败会让前面全部白费；按组拆开，用户只装需要的。
+    // 每组内部都是「独立可完成」的：即便某一步失败，已装成功的工具仍能用。
+
+    /** 侦察：子域 → 存活 → 爬虫 → 端口 → 模板扫描 + nuclei-templates。 */
+    val PENTEST_RECON = LinuxPackageProfile(
+        id = "pentest-recon",
+        markerName = AlpineEnvironmentPaths.PENTEST_RECON_MARKER,
+        revision = AlpineEnvironmentPaths.PENTEST_RECON_REVISION,
+        dependsOn = PYTHON,
+        specs = mapOf(
+            LinuxDistribution.ALPINE to LinuxPackageSpec(steps = PentestProfiles.RECON_STEPS),
+            LinuxDistribution.DEBIAN to LinuxPackageSpec(steps = PentestProfiles.RECON_STEPS),
+        ),
+    )
+
+    /** Web 专项：目录/参数 fuzz、指纹、WAF 识别 + seclists 裁剪版。 */
+    val PENTEST_WEB = LinuxPackageProfile(
+        id = "pentest-web",
+        markerName = AlpineEnvironmentPaths.PENTEST_WEB_MARKER,
+        revision = AlpineEnvironmentPaths.PENTEST_WEB_REVISION,
+        dependsOn = PYTHON,
+        specs = mapOf(
+            LinuxDistribution.ALPINE to LinuxPackageSpec(steps = PentestProfiles.WEB_STEPS),
+            LinuxDistribution.DEBIAN to LinuxPackageSpec(steps = PentestProfiles.WEB_STEPS),
+        ),
+    )
+
+    /** 网络基础：扫描、抓包、转发。 */
+    val PENTEST_NET = LinuxPackageProfile(
+        id = "pentest-net",
+        markerName = AlpineEnvironmentPaths.PENTEST_NET_MARKER,
+        revision = AlpineEnvironmentPaths.PENTEST_NET_REVISION,
+        specs = mapOf(
+            LinuxDistribution.ALPINE to LinuxPackageSpec(steps = PentestProfiles.NET_STEPS),
+            LinuxDistribution.DEBIAN to LinuxPackageSpec(steps = PentestProfiles.NET_STEPS),
+        ),
+    )
+
+    /** 凭据：注入、爆破、离线破解（hashcat 需额外装 OpenCL 运行库）。 */
+    val PENTEST_CRED = LinuxPackageProfile(
+        id = "pentest-cred",
+        markerName = AlpineEnvironmentPaths.PENTEST_CRED_MARKER,
+        revision = AlpineEnvironmentPaths.PENTEST_CRED_REVISION,
+        specs = mapOf(
+            LinuxDistribution.ALPINE to LinuxPackageSpec(steps = PentestProfiles.CRED_STEPS),
+            LinuxDistribution.DEBIAN to LinuxPackageSpec(steps = PentestProfiles.CRED_STEPS),
+        ),
+    )
+
+    /** 云与源码审计：体积最大（约 300MB），单独一组方便跳过。 */
+    val PENTEST_CLOUD = LinuxPackageProfile(
+        id = "pentest-cloud",
+        markerName = AlpineEnvironmentPaths.PENTEST_CLOUD_MARKER,
+        revision = AlpineEnvironmentPaths.PENTEST_CLOUD_REVISION,
+        dependsOn = PYTHON,
+        specs = mapOf(
+            LinuxDistribution.ALPINE to LinuxPackageSpec(steps = PentestProfiles.CLOUD_STEPS),
+            LinuxDistribution.DEBIAN to LinuxPackageSpec(steps = PentestProfiles.CLOUD_STEPS),
+        ),
+    )
+
+    /** 内网 / AD：impacket、NetExec（只能从 git 装）、certipy-ad。 */
+    val PENTEST_AD = LinuxPackageProfile(
+        id = "pentest-ad",
+        markerName = AlpineEnvironmentPaths.PENTEST_AD_MARKER,
+        revision = AlpineEnvironmentPaths.PENTEST_AD_REVISION,
+        dependsOn = PYTHON,
+        specs = mapOf(
+            LinuxDistribution.ALPINE to LinuxPackageSpec(steps = PentestProfiles.AD_STEPS),
+            LinuxDistribution.DEBIAN to LinuxPackageSpec(steps = PentestProfiles.AD_STEPS),
+        ),
+    )
+
+    /** 无线：只能离线解 pcap，手机 WiFi 芯片基本不支持监听模式。 */
+    val PENTEST_WIFI = LinuxPackageProfile(
+        id = "pentest-wifi",
+        markerName = AlpineEnvironmentPaths.PENTEST_WIFI_MARKER,
+        revision = AlpineEnvironmentPaths.PENTEST_WIFI_REVISION,
+        specs = mapOf(
+            LinuxDistribution.ALPINE to LinuxPackageSpec(steps = PentestProfiles.WIFI_STEPS),
+            LinuxDistribution.DEBIAN to LinuxPackageSpec(steps = PentestProfiles.WIFI_STEPS),
+        ),
+    )
 
     /**
      * 必须放在所有属性之后声明。
@@ -677,7 +763,11 @@ internal object LinuxPackageProfiles {
      * 读到它们时字段还是 null，编译期会报 "Variable 'RE_LAB' must be initialized"。
      * 这类错误本地看不出来（本地不能编译），只能等 CI。
      */
-    val ALL = listOf(PYTHON, NODE, SSH, KIMI, RE_LAB, ANGR, ANDROID_SDK)
+    val ALL = listOf(
+        PYTHON, NODE, SSH, KIMI, RE_LAB, ANGR, ANDROID_SDK,
+        PENTEST_RECON, PENTEST_WEB, PENTEST_NET, PENTEST_CRED,
+        PENTEST_CLOUD, PENTEST_AD, PENTEST_WIFI,
+    )
 }
 
 internal fun linuxPackageProfileReady(rootfs: File, profile: LinuxPackageProfile): Boolean {

@@ -50,6 +50,12 @@ jobs:
           python3 ci/verify_profile_decl_order.py
           python3 ci/self_test_profile_decl_order.py
 
+      - name: 校验渗透工具组（URL 可达 + 脚本语法）
+        shell: bash
+        # 7 组共 20 多个下载步骤，URL 写错（gobuster 的 Linux 大写、
+        # feroxbuster 的架构前置）只有真机才暴露。这里编译前先 HEAD 一遍。
+        run: python3 ci/verify_pentest_toolkits.py
+
       - name: 本地静态检查（括号 / 资源 / import / shell 转义）
         shell: bash
         # 与本地跑的是同一个脚本，保证本地过 = CI 过。

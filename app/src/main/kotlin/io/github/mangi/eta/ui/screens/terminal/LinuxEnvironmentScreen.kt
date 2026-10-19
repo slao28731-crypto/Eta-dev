@@ -88,6 +88,13 @@ private enum class InstallTarget {
     RE_LAB,
     ANGR,
     ANDROID_SDK,
+    PENTEST_RECON,
+    PENTEST_WEB,
+    PENTEST_NET,
+    PENTEST_CRED,
+    PENTEST_CLOUD,
+    PENTEST_AD,
+    PENTEST_WIFI,
 }
 
 private data class PackageProfileUi(
@@ -151,6 +158,55 @@ private val packageProfileUis = listOf(
         titleRes = R.string.linux_android_sdk_tools,
         summaryRes = R.string.linux_android_sdk_tools_summary,
         readyRes = R.string.linux_android_sdk_tools_ready,
+    ),
+    PackageProfileUi(
+        target = InstallTarget.PENTEST_RECON,
+        profile = LinuxPackageProfiles.PENTEST_RECON,
+        titleRes = R.string.linux_pentest_recon,
+        summaryRes = R.string.linux_pentest_recon_summary,
+        readyRes = R.string.linux_pentest_recon_ready,
+    ),
+    PackageProfileUi(
+        target = InstallTarget.PENTEST_WEB,
+        profile = LinuxPackageProfiles.PENTEST_WEB,
+        titleRes = R.string.linux_pentest_web,
+        summaryRes = R.string.linux_pentest_web_summary,
+        readyRes = R.string.linux_pentest_web_ready,
+    ),
+    PackageProfileUi(
+        target = InstallTarget.PENTEST_NET,
+        profile = LinuxPackageProfiles.PENTEST_NET,
+        titleRes = R.string.linux_pentest_net,
+        summaryRes = R.string.linux_pentest_net_summary,
+        readyRes = R.string.linux_pentest_net_ready,
+    ),
+    PackageProfileUi(
+        target = InstallTarget.PENTEST_CRED,
+        profile = LinuxPackageProfiles.PENTEST_CRED,
+        titleRes = R.string.linux_pentest_cred,
+        summaryRes = R.string.linux_pentest_cred_summary,
+        readyRes = R.string.linux_pentest_cred_ready,
+    ),
+    PackageProfileUi(
+        target = InstallTarget.PENTEST_CLOUD,
+        profile = LinuxPackageProfiles.PENTEST_CLOUD,
+        titleRes = R.string.linux_pentest_cloud,
+        summaryRes = R.string.linux_pentest_cloud_summary,
+        readyRes = R.string.linux_pentest_cloud_ready,
+    ),
+    PackageProfileUi(
+        target = InstallTarget.PENTEST_AD,
+        profile = LinuxPackageProfiles.PENTEST_AD,
+        titleRes = R.string.linux_pentest_ad,
+        summaryRes = R.string.linux_pentest_ad_summary,
+        readyRes = R.string.linux_pentest_ad_ready,
+    ),
+    PackageProfileUi(
+        target = InstallTarget.PENTEST_WIFI,
+        profile = LinuxPackageProfiles.PENTEST_WIFI,
+        titleRes = R.string.linux_pentest_wifi,
+        summaryRes = R.string.linux_pentest_wifi_summary,
+        readyRes = R.string.linux_pentest_wifi_ready,
     ),
 )
 

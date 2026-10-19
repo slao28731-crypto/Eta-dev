@@ -196,11 +196,19 @@ def check_profiles() -> list:
     failures = []
     src = KT.read_text(encoding="utf-8")
 
-    if "listOf(PYTHON, NODE, SSH, KIMI, RE_LAB, ANGR)" not in src and \
-            "ANDROID_SDK)" not in src:
-        failures.append("ALL 没有列出 RE_LAB / ANGR / ANDROID_SDK")
+    # ALL 列表现在跨多行且含 14 个 profile，逐字匹配已不适用。
+    # 改为检查：每个我们关心的 profile 名字都出现在 ALL 的括号内。
+    import re as _re
+    all_match = _re.search(r"val ALL = listOf\((.*?)\n    \)", src, _re.S)
+    all_block = all_match.group(1) if all_match else ""
+    required = ("RE_LAB", "ANGR", "ANDROID_SDK", "PENTEST_RECON", "PENTEST_WIFI")
+    missing = [n for n in required if n not in all_block]
+    if not all_match:
+        failures.append("找不到 val ALL = listOf(...) 定义")
+    elif missing:
+        failures.append(f"ALL 缺少：{', '.join(missing)}")
     else:
-        print("  [ok] ALL 含 RE_LAB / ANGR（及 ANDROID_SDK）")
+        print("  [ok] ALL 含 RE_LAB / ANGR / ANDROID_SDK / PENTEST_*")
 
     for name in ("RE_LAB", "ANGR"):
         block_start = src.index(f"val {name} = LinuxPackageProfile(")

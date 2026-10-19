@@ -18,6 +18,14 @@ internal object AlpineEnvironmentPaths {
     const val ANGR_MARKER = ".eta-angr-ready"
     /** Android SDK + Gradle：ARM64 工具包 + android.jar + Gradle，可在手机上编 APK。 */
     const val ANDROID_SDK_MARKER = ".eta-android-sdk-ready"
+    /** 渗透测试 7 组：各自独立 marker，装一组只写一组的标记。 */
+    const val PENTEST_RECON_MARKER = ".eta-pentest-recon-ready"
+    const val PENTEST_WEB_MARKER = ".eta-pentest-web-ready"
+    const val PENTEST_NET_MARKER = ".eta-pentest-net-ready"
+    const val PENTEST_CRED_MARKER = ".eta-pentest-cred-ready"
+    const val PENTEST_CLOUD_MARKER = ".eta-pentest-cloud-ready"
+    const val PENTEST_AD_MARKER = ".eta-pentest-ad-ready"
+    const val PENTEST_WIFI_MARKER = ".eta-pentest-wifi-ready"
     const val TOOLSET_REVISION = 1
     // revision 2：补齐 ARM64 aapt2，解掉「只解码不回编译」的限制。
     const val APK_ANALYSIS_REVISION = 2
@@ -29,6 +37,13 @@ internal object AlpineEnvironmentPaths {
     const val RE_LAB_REVISION = 1
     const val ANGR_REVISION = 1
     const val ANDROID_SDK_REVISION = 1
+    const val PENTEST_RECON_REVISION = 1
+    const val PENTEST_WEB_REVISION = 1
+    const val PENTEST_NET_REVISION = 1
+    const val PENTEST_CRED_REVISION = 1
+    const val PENTEST_CLOUD_REVISION = 1
+    const val PENTEST_AD_REVISION = 1
+    const val PENTEST_WIFI_REVISION = 1
     // 两个新 profile 的 marker 说明见 LinuxPackageProfiles.RE_LAB / ANGR 的注释。
 
     fun environmentDir(context: Context): File =

@@ -152,6 +152,17 @@ internal object AgentPromptBuilder {
                     "dex 转 jar 用 d2j-dex2jar（dex2jar 2.4，纯 Java）；" +
                     "反编译 so 用 angr 命令行（`angr decompile x.so` / `angr disassemble x.so`，已在 PATH）；" +
                     "dex 转 class 之外的分支用 d8/r8（/opt/eta/re-tools/r8-<ver>.jar）。" +
+                    "**渗透测试工具装 7 组**（设置 → 终端 → Linux 环境 → 可选工具，名字以「渗透 ·」开头）：" +
+                    "侦察（nuclei/httpx/subfinder/katana/dnsx/naabu/gau + 裁剪模板）、" +
+                    "Web（ffuf/gobuster/feroxbuster/dalfox/arjun/whatweb/wafw00f/dirsearch + SecLists）、" +
+                    "网络（nmap/masscan/tcpdump/socat/ncat/netcat/proxychains4/whois/dnsrecon）、" +
+                    "凭据（sqlmap/hydra/john/hashcat + rockyou）、" +
+                    "云审计（awscli/kubectl/gitleaks/trufflehog/semgrep/scoutsuite/pacu）、" +
+                    "内网 AD（impacket/NetExec/certipy-ad）、无线（aircrack-ng）。" +
+                    "二进制在 /opt/eta/pentest/bin 并已软链进 PATH；数据在 /opt/eta/pentest/data" +
+                    "（nuclei-templates、seclists、rockyou-100k.txt）。" +
+                    "注意三点：hashcat 需要 OpenCL（安装时已带 pocl + ocl-icd，缺了会报 No OpenCL）；" +
+                    "NetExec 只能从 GitHub 源码装（PyPI 无此包）；aircrack-ng 只能解 pcap，抓包要监听模式网卡。" +
                     "读取图片内容调用 read_image；同一轮最多读取一张，观察返回内容后再读下一张。" +
                     executionContext?.let { "\n" + it.description(rootAvailable) }.orEmpty(),
             ))

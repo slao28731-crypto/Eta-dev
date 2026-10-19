@@ -21,6 +21,8 @@ ROOT = Path(__file__).resolve().parent.parent
 KT_FILES = [
     "app/src/main/kotlin/io/github/mangi/eta/agent/terminal/LinuxPackageProfiles.kt",
     "app/src/main/kotlin/io/github/mangi/eta/agent/terminal/AndroidNdkInstaller.kt",
+    "app/src/main/kotlin/io/github/mangi/eta/agent/terminal/PentestToolkits.kt",
+    "app/src/main/kotlin/io/github/mangi/eta/agent/terminal/PentestProfiles.kt",
     "app/src/main/kotlin/io/github/mangi/eta/ui/screens/terminal/LinuxEnvironmentScreen.kt",
     "app/src/main/kotlin/io/github/mangi/eta/ui/screens/terminal/LinuxEnvironmentSections.kt",
 ]
