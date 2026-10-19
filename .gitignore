@@ -56,3 +56,4 @@ __pycache__/
 /ci/_m*.txt
 /ci/_msg.txt
 /docs/_msg.txt
+docs/_cmsg.txt
