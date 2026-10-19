@@ -29,7 +29,6 @@ MEMBER_DECL = re.compile(
 
 # 只检查 object LinuxPackageProfiles 内部；外面的 class 不受此限。
 OBJECT_START = re.compile(r"^internal object LinuxPackageProfiles\s*\{", re.MULTILINE)
-
 # 完整的 Kotlin 标识符；用整词匹配避免 `reLabArtifacts` 里的 `LAB` 被当成 `RE_LAB`。
 IDENT = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\b")
 
@@ -47,6 +46,20 @@ def strip_noise(chunk: str) -> str:
     chunk = re.sub(r"'(?:\\.|[^'\\])*'", "''", chunk)
     return chunk
 
+
+def cut_function_body(chunk: str) -> str:
+    """只保留属性声明的「值部分」或函数的「签名部分」，去掉函数体 / lambda 体。
+
+    为什么需要：`private fun foo()` 的函数体里会引用局部变量、参数、receiver 成员
+    （例如 `val marker = File(rootfs, ...)` 里的 `rootfs`）。这些不是 object 成员，
+    参与顺序判定只会产生假阳性。
+    """
+    # 函数：从 `fun name(...)` 到第一个 `{` 之前都算签名
+    fun_match = re.search(r"\b(?:private\s+|internal\s+)?fun\b", chunk)
+    if fun_match:
+        brace = chunk.find("{", fun_match.start())
+        return chunk[:brace] if brace >= 0 else chunk
+    return chunk
 
 def main() -> int:
     if not TARGET.is_file():
@@ -67,11 +80,20 @@ def main() -> int:
     i = start
     body_end = len(text)
     in_raw = False
-    in_block_comment = False
+    in_block = False
+    in_line = False
+    in_str = False
+    in_char = False
     while i < len(text):
-        if in_block_comment:
+        ch = text[i]
+        if in_line:
+            if ch == "\n":
+                in_line = False
+            i += 1
+            continue
+        if in_block:
             if text.startswith("*/", i):
-                in_block_comment = False
+                in_block = False
                 i += 2
                 continue
             i += 1
@@ -83,17 +105,45 @@ def main() -> int:
                 continue
             i += 1
             continue
+        if in_str:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == '"':
+                in_str = False
+            i += 1
+            continue
+        if in_char:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == "'":
+                in_char = False
+            i += 1
+            continue
+        if text.startswith("//", i):
+            in_line = True
+            i += 2
+            continue
         if text.startswith("/*", i):
-            in_block_comment = True
+            in_block = True
             i += 2
             continue
         if text.startswith('"""', i):
             in_raw = True
             i += 3
             continue
-        if text[i] == "{":
+        if ch == '"':
+            in_str = True
+            i += 1
+            continue
+        if ch == "'":
+            in_char = True
+            i += 1
+            continue
+        if ch == "{":
             depth += 1
-        elif text[i] == "}":
+        elif ch == "}":
             depth -= 1
             if depth == 0:
                 body_end = i
@@ -101,7 +151,6 @@ def main() -> int:
         i += 1
 
     body = text[start:body_end]
-    body_offset = start
 
     decls = {}
     for m in MEMBER_DECL.finditer(body):
@@ -136,7 +185,10 @@ def main() -> int:
         end = min(next_positions) if next_positions else len(body)
         chunk = body[pos:end]
         chunk = strip_noise(chunk)
-        for ref in sorted(set(IDENT.findall(chunk))):
+        # 这个声明可能是函数：函数体内的局部变量和参数不算「成员引用」。
+        # 把签名之后的函数体整体挖掉，只留签名本身来做引用扫描。
+        signature_only = cut_function_body(chunk)
+        for ref in sorted(set(IDENT.findall(signature_only))):
             if ref == name or ref in {"ALL", "OK"}:
                 continue
             if ref not in decls:

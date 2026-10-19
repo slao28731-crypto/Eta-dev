@@ -133,8 +133,16 @@ internal object AgentPromptBuilder {
                     "只能让用户在电脑上跑完再把 dump.cs / script.json 传回来。" +
                     "逆向分析工具组（设置 → 终端 → Linux 环境 → 逆向分析工具组）提供 z3 约束求解、" +
                     "unicorn 片段仿真、APKiD 判壳、objection 一键过 SSL Pinning、mitmproxy 抓包、" +
-                    "radare2 免 IDA 的 so 静态分析；angr 符号执行是单独一项（约 900MB，按需安装）。" +
+                    "androguard 纯 Python 解析、radare2 免 IDA 的 so 静态分析；" +
+                    "同时会装 d8/r8（位于 /opt/eta/re-tools/r8-<ver>.jar，入口 /usr/local/bin/d8 与 /usr/local/bin/r8）、" +
+                    "并把 Debian 的 Android build-tools（aapt/aapt2/apksigner/zipalign/dexdump）软链进 /usr/local/bin；" +
+                    "angr 符号执行是单独一项（约 900MB，按需安装，其 z3 必须是 5.1.0.0）。" +
                     "这些都需要先装好 Python 环境；未安装时提示用户在设置里点安装，不要 pip install 或 apt install。" +
+                    "**Android NDK 是另一套机制**：它由用户在设置页自行导入压缩包，装在 App 私有目录，" +
+                    "clang 是 bionic 二进制（依赖 /system/bin/linker64），只能在 **root shell 通道**调用，" +
+                    "在 Linux 终端里执行必然失败。调用前先用 shell 查 " +
+                    "/data/data/io.github.mangi.eta/files/android-ndk/.active 拿到当前版本槽名，" +
+                    "可执行文件在该槽的 bin/clang；绝对不要在 environment=linux 下试 NDK。" +
                     "读取图片内容调用 read_image；同一轮最多读取一张，观察返回内容后再读下一张。" +
                     executionContext?.let { "\n" + it.description(rootAvailable) }.orEmpty(),
             ))

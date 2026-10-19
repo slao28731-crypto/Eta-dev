@@ -2,6 +2,8 @@ package io.github.mangi.eta.ui.screens.terminal
 
 import android.content.Context
 import android.text.format.Formatter
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -24,6 +26,7 @@ import io.github.mangi.eta.agent.terminal.AlpineEnvironmentState
 import io.github.mangi.eta.agent.terminal.AlpineInstallProgress
 import io.github.mangi.eta.agent.terminal.AlpineInstallResult
 import io.github.mangi.eta.agent.terminal.AlpineInstallStage
+import io.github.mangi.eta.agent.terminal.AndroidNdkInstaller
 import io.github.mangi.eta.agent.terminal.ApkAnalysisInstallProgress
 import io.github.mangi.eta.agent.terminal.ApkAnalysisInstallResult
 import io.github.mangi.eta.agent.terminal.ApkAnalysisInstallStage
@@ -204,6 +207,13 @@ internal fun LinuxEnvironmentScreen(
     var fridaProgress by remember { mutableStateOf<FridaInstallProgress?>(null) }
     var kimiWebLaunching by remember { mutableStateOf(false) }
     var kimiWebRunning by remember(selectedDistribution, backend) { mutableStateOf(false) }
+    // Android NDK 是用户自备资产：这里只记录探测到的版本列表与导入进度。
+    val ndkInstaller = remember(appContext) { AndroidNdkInstaller(appContext) }
+    var ndkVersions by remember { mutableStateOf(ndkInstaller.installedVersions()) }
+    var ndkActiveSlot by remember { mutableStateOf(ndkInstaller.activeNdk()?.slotName) }
+    var ndkImporting by remember { mutableStateOf(false) }
+    var ndkProgress by remember { mutableStateOf<AndroidNdkInstaller.ExtractProgress?>(null) }
+    var ndkMessage by remember { mutableStateOf<String?>(null) }
     val kimiWebLauncher = remember(appContext) {
         KimiWebLauncher(
             context = appContext,
@@ -258,6 +268,58 @@ internal fun LinuxEnvironmentScreen(
             )
         } else {
             coroutineScope.launch { operation() }
+        }
+    }
+
+    /**
+     * NDK 归档选择器。
+     *
+     * 为什么用 OpenDocument 而不是 GetContent：NDK 包动辄 700MB，
+     * GetContent 会先复制一份到缓存；OpenDocument 给的是可直接读的 URI。
+     * MIME 必须放宽到 octet-stream —— `.tgz` 在多数 ROM 上就报这个。
+     */
+    val ndkPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val resolver = appContext.contentResolver
+        // 文件名用于推导版本槽名；拿不到就退回时间戳，不让导入失败。
+        val displayName = runCatching {
+            resolver.query(uri, null, null, null, null)?.use { cursor ->
+                val index = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (index >= 0 && cursor.moveToFirst()) cursor.getString(index) else null
+            }
+        }.getOrNull() ?: "ndk-${System.currentTimeMillis()}"
+        val declaredSize = runCatching { resolver.openAssetFileDescriptor(uri, "r")?.length ?: 0L }
+            .getOrDefault(0L)
+
+        ndkImporting = true
+        ndkMessage = null
+        ndkProgress = null
+        launchInstallation {
+            val result = ndkInstaller.import(
+                openStream = { resolver.openInputStream(uri) ?: java.io.ByteArrayInputStream(ByteArray(0)) },
+                slotName = displayName,
+                archiveSize = declaredSize,
+            ) { update ->
+                withContext(Dispatchers.Main.immediate) { ndkProgress = update }
+            }
+            ndkVersions = ndkInstaller.installedVersions()
+            ndkActiveSlot = ndkInstaller.activeNdk()?.slotName
+            ndkProgress = null
+            ndkImporting = false
+            ndkMessage = when (result) {
+                is AndroidNdkInstaller.NdkImportResult.Imported ->
+                    context.getString(R.string.ndk_import_done, result.ndk.revision.ifBlank { result.ndk.slotName })
+                AndroidNdkInstaller.NdkImportResult.NotAnNdk ->
+                    context.getString(R.string.ndk_import_not_ndk)
+                AndroidNdkInstaller.NdkImportResult.UnsupportedAbi ->
+                    context.getString(R.string.ndk_import_unsupported_abi)
+                AndroidNdkInstaller.NdkImportResult.InvalidName ->
+                    context.getString(R.string.ndk_import_invalid_name)
+                is AndroidNdkInstaller.NdkImportResult.Failed ->
+                    context.getString(R.string.ndk_import_failed, result.reason)
+            }
         }
     }
 
@@ -437,6 +499,133 @@ internal fun LinuxEnvironmentScreen(
                         summary = stringResource(R.string.linux_files_entry_summary),
                         startAction = { EtaPreferenceIcon(Icons.Rounded.Description, tint = EtaPreferenceColors.Blue) },
                         onClick = { onNavigate(AppRoute.LinuxFiles(selectedDistribution.wireName)) },
+                    )
+                }
+            }
+        }
+
+        // Android NDK：用户自备资产，不内置。
+        // 刻意放在 selectedToolsReady 之外 —— NDK 装在 App 私有目录、由 Android
+        // 宿主执行，跟 Debian rootfs 完全无关，不该因为没装 Linux 环境而藏起来。
+        item(key = "ndk-title") {
+            EtaPreferenceGroupTitle(stringResource(R.string.linux_ndk_title))
+        }
+        item(key = "ndk-card") {
+            EtaPreferenceGroup {
+                EtaPreference(
+                    title = stringResource(R.string.linux_ndk_title),
+                    summary = when {
+                        ndkImporting -> {
+                            val snapshot = ndkProgress
+                            val fraction = snapshot?.fraction
+                            if (fraction != null) {
+                                val percent = (fraction * 100f).toInt()
+                                context.getString(
+                                    if (snapshot.copying) {
+                                        R.string.linux_ndk_copying
+                                    } else {
+                                        R.string.linux_ndk_extracting
+                                    },
+                                    percent,
+                                )
+                            } else {
+                                context.getString(R.string.linux_ndk_importing)
+                            }
+                        }
+                        ndkVersions.isEmpty() -> stringResource(R.string.linux_ndk_empty)
+                        else -> {
+                            val active = ndkVersions.firstOrNull { it.slotName == ndkActiveSlot }
+                                ?: ndkVersions.first()
+                            context.getString(
+                                R.string.linux_ndk_active,
+                                active.revision.ifBlank { active.slotName },
+                                active.slotName,
+                            )
+                        }
+                    },
+                    endActions = {
+                        EtaTextButton(
+                            text = if (ndkImporting) {
+                                stringResource(R.string.linux_ndk_importing)
+                            } else {
+                                stringResource(R.string.linux_ndk_import)
+                            },
+                            enabled = !ndkImporting,
+                            onClick = {
+                                ndkPicker.launch(
+                                    arrayOf(
+                                        "application/gzip",
+                                        "application/x-gzip",
+                                        "application/x-xz",
+                                        "application/x-tar",
+                                        "application/octet-stream",
+                                    ),
+                                )
+                            },
+                        )
+                    },
+                )
+                if (ndkVersions.isNotEmpty()) {
+                    EtaPreferenceDivider(hasLeading = false)
+                    EtaPreference(
+                        title = stringResource(R.string.linux_ndk_title),
+                        summary = buildString {
+                            append(stringResource(R.string.linux_ndk_summary))
+                            ndkVersions.firstOrNull { it.clangCommand != null }?.clangCommand?.let { path ->
+                                append("\n")
+                                append(context.getString(R.string.linux_ndk_usage_hint, path))
+                            }
+                        },
+                    )
+                }
+                // 多版本时每个版本一行，可切换 / 删除。单版本不列，省得界面啰嗦。
+                if (ndkVersions.size > 1) {
+                    ndkVersions.forEach { version ->
+                        EtaPreferenceDivider(hasLeading = false)
+                        EtaPreference(
+                            title = version.revision.ifBlank { version.slotName },
+                            summary = buildString {
+                                append(version.slotName)
+                                append(" · ")
+                                append(ndkInstaller.sizeOf(version.slotName).toReadableSize(context))
+                                if (version.clangCommand == null) {
+                                    append(" · ")
+                                    append(context.getString(R.string.ndk_import_not_ndk))
+                                }
+                            },
+                            endActions = {
+                                if (version.slotName != ndkActiveSlot) {
+                                    EtaTextButton(
+                                        text = stringResource(R.string.linux_ndk_set_active),
+                                        enabled = !ndkImporting,
+                                        onClick = {
+                                            if (ndkInstaller.activate(version.slotName)) {
+                                                ndkActiveSlot = ndkInstaller.activeNdk()?.slotName
+                                                ndkMessage = null
+                                            }
+                                        },
+                                    )
+                                }
+                                EtaTextButton(
+                                    text = stringResource(R.string.linux_ndk_remove),
+                                    enabled = !ndkImporting,
+                                    onClick = {
+                                        if (ndkInstaller.remove(version.slotName)) {
+                                            ndkVersions = ndkInstaller.installedVersions()
+                                            ndkActiveSlot = ndkInstaller.activeNdk()?.slotName
+                                            ndkMessage = null
+                                        }
+                                    },
+                                )
+                            },
+                        )
+                    }
+                }
+                ndkMessage?.let { message ->
+                    EtaPreferenceDivider(hasLeading = false)
+                    EtaPreference(
+                        title = stringResource(R.string.linux_ndk_title),
+                        summary = message,
                     )
                 }
             }

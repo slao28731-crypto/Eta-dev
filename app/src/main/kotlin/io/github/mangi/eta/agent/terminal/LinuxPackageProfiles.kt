@@ -202,25 +202,103 @@ internal object LinuxPackageProfiles {
         append("true")
     }
 
+    /**
+     * 把 Debian 打包的 Android build-tools 接进 PATH。
+     *
+     * 为什么需要这步：`android-sdk-build-tools` 在 aarch64 上是真实存在的
+     * （29.0.3，含 aapt/aapt2/apksigner/zipalign/dexdump），但 Debian 把它
+     * 装在 `/usr/lib/android-sdk/build-tools/<ver>/` 这个**不在 PATH** 的位置，
+     * 于是 `command -v aapt2` 找不到 —— 这就是「工具缺失」错觉的来源。
+     *
+     * 动态找版本目录而不是写死 29.0.3：Debian 后续会升级这个版本号。
+     */
+    private fun renderAndroidBuildToolsLinksCommand(): String = buildString {
+        append("bt_dir=$(ls -d /usr/lib/android-sdk/build-tools/*/ 2>/dev/null | tail -1); ")
+        append("[ -n \"\$bt_dir\" ] || exit 79; ")
+        append("for t in aapt aapt2 aidl apksigner dexdump zipalign split-select; do ")
+        append("[ -e \"\$bt_dir\$t\" ] && ln -sf \"\$bt_dir\$t\" /usr/local/bin/\$t; ")
+        append("done; ")
+        // apksigner 是 shell 脚本，它靠同目录或 /usr/share/java 找 apksigner.jar，
+        // 软链过去后相对路径会失效，所以额外把 jar 也链一份到它预期的位置。
+        append("[ -e \"\$bt_dir/apksigner.jar\" ] && ln -sf \"\$bt_dir/apksigner.jar\" /usr/share/java/apksigner.jar 2>/dev/null; ")
+        append("true")
+    }
+
+    /**
+     * 装 r8 → 提供 d8 / r8 命令。
+     *
+     * 为什么不走 apt：Debian trixie 里**没有 d8/dx 的包**（`apt-cache policy d8`
+     * 找不到）。而 d8 是 r8 这个纯 Java 程序里的一个入口类，只要 JVM 就能跑，
+     * 与 CPU 架构无关 —— Eta 的 apk-analysis 组已经带了 JDK 25。
+     *
+     * d8 = 把 .class 转成 .dex（老 `dx` 的替代品，`dx` 2017 年就淘汰了）。
+     * r8 = d8 的超集，额外做收缩/混淆/优化。
+     *
+     * 版本固定而不是 latest：r8 的 maven-metadata 里有大量 `-dev` 版本，
+     * 取「最新」会挑到开发版，行为不稳定。
+     */
+    private fun renderR8SetupCommand(): String = buildString {
+        append("r8_dir=/opt/eta/re-tools; mkdir -p \$r8_dir || exit 80; ")
+        append("r8_jar=\$r8_dir/r8-$R8_VERSION.jar; ")
+        // 已存在就跳过，避免重复下载 20MB。
+        append("if [ ! -s \"\$r8_jar\" ]; then ")
+        append("curl -fsSL --retry 2 --max-time 300 -o \"\$r8_jar.part\" \"$R8_URL\" || { rm -f \"\$r8_jar.part\"; exit 81; }; ")
+        append("mv \"\$r8_jar.part\" \"\$r8_jar\" || exit 81; ")
+        append("fi; ")
+        append("[ -s \"\$r8_jar\" ] || exit 81; ")
+        // 现成的 java：apk-analysis profile 装的那份
+        append("java_bin=/usr/local/bin/java; [ -x \"\$java_bin\" ] || java_bin=\$(command -v java); ")
+        append("[ -n \"\$java_bin\" ] || exit 82; ")
+        append("for entry in D8 R8; do ")
+        append("case \$entry in D8) name=d8;; R8) name=r8;; esac; ")
+        // 注意 \$java_bin / \$r8_jar / \$@ 必须转义：不转义会被 Kotlin 当成
+        // 模板插值，编译直接报 Unresolved reference（run #37 的教训，P082）。
+        append("printf '%s\\n' '#!/bin/sh' \"exec \$java_bin -cp \$r8_jar com.android.tools.r8.\$entry \\\"\\\$@\\\"\" > /usr/local/bin/\$name || exit 83; ")
+        append("chmod 0755 /usr/local/bin/\$name || exit 83; ")
+        append("done; ")
+        append("d8 --version >/dev/null || exit 84")
+    }
+
+    /** r8 的固定版本与下载地址。Maven 上有大量 `-dev` 版本，不取 latest。 */
+    private const val R8_VERSION = "9.5.26"
+    private const val R8_URL =
+        "https://dl.google.com/dl/android/maven2/com/android/tools/r8/$R8_VERSION/r8-$R8_VERSION.jar"
+
     /** pip 侧逐包一步。`--break-system-packages` 是 Debian trixie 的 PEP 668 硬要求。 */
     private val RE_LAB_PIP_STEPS = listOf(
-        LinuxPackageStep("z3-solver", "python3 -m pip install --quiet --break-system-packages --upgrade z3-solver", "z3 装不上时通常是网络问题，重试即可"),
+        // 钉 5.1.0.0 而不是装最新版：angr 10.0.4 的元数据里写的是
+        // `z3-solver==5.1.0.0`，它按这个版本号找 libz3.so.5.1。
+        // 装 5.3 时 import angr 会直接报
+        // `ImportError: libz3.so.5.1: cannot open shared object file`。
+        // 这是实际踩过的坑，不是保守选择。
+        LinuxPackageStep("z3-solver", "python3 -m pip install --quiet --break-system-packages --upgrade \"z3-solver==5.1.0.0\"", "z3 必须与 angr 要求的 5.1.0.0 一致，装不上时先确认网络"),
         LinuxPackageStep("unicorn", "python3 -m pip install --quiet --break-system-packages --upgrade unicorn", "unicorn 装不上时通常是网络问题，重试即可"),
         LinuxPackageStep("apkid", "python3 -m pip install --quiet --break-system-packages --upgrade apkid", "APKiD 依赖 yara-python-dex，装不上时先确认网络"),
         LinuxPackageStep("objection", "python3 -m pip install --quiet --break-system-packages --upgrade objection", "objection 需要 frida>=16，请先装好 Frida 工具"),
         LinuxPackageStep("mitmproxy", "python3 -m pip install --quiet --break-system-packages --upgrade mitmproxy", "mitmproxy 依赖较多，网络慢时耗时较长"),
+        LinuxPackageStep("androguard", "python3 -m pip install --quiet --break-system-packages --upgrade androguard", "androguard 是纯 Python，装不上时通常是网络问题"),
         LinuxPackageStep(
             label = "命令行入口",
             command = renderCliLinksCommand(
-                listOf("mitmdump", "mitmproxy", "mitmweb", "objection", "apkid", "r2", "radare2"),
+                listOf("mitmdump", "mitmproxy", "mitmweb", "objection", "apkid", "androguard", "androarsc", "androaxml", "r2", "radare2"),
             ),
             failureHint = "工具已装上但入口没找到，检查 /opt/eta/python 下的 bin 目录是否存在",
         ),
         LinuxPackageStep(
             label = "运行自检",
-            command = "python3 -c 'import z3, unicorn' && r2 -v >/dev/null && " +
-                "python3 -c 'import apkid' && command -v mitmdump && command -v objection",
+            command = "python3 -c 'import z3, unicorn, apkid, androguard' && r2 -v >/dev/null && " +
+                "command -v mitmdump && command -v objection",
             failureHint = "组件已装但跑不起来，多为动态库缺失",
+        ),
+        LinuxPackageStep(
+            label = "Android 命令行工具",
+            command = renderAndroidBuildToolsLinksCommand(),
+            failureHint = "build-tools 未随基础环境安装，可稍后重试",
+        ),
+        LinuxPackageStep(
+            label = "r8 / d8",
+            command = renderR8SetupCommand(),
+            failureHint = "r8.jar 下载失败（20MB，来自 Google Maven），网络恢复后重试",
         ),
     )
 
