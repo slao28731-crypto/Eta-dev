@@ -60,7 +60,7 @@
   - 代码改动：`FridaPaths` 新增 `RUNTIME_DIR` + `runtimeServerFile()`；新增 `stageServer()`（起之前复制 + chmod 755，大小一致时只补权限）；`startServer()` / `detectServerPid()` 改用 runtime 路径并先 `cd`；新增 `purgeStaleServer()` 清掉老版本跑在 filesDir 的残留（**只比 cmdline 第一个 token，整体 contains 会自杀**）；`ensureRunning()` 加 `staleForeign` 判定；`stopServer()` 也能清野生进程
   - 顺带修：中文 `values-b+zh+Hans/strings.xml` 补 7 条 `linux_frida_*` 并同步 `linux_apk_tools_ready/summary`（上一轮只改了英文）；`AgentPromptBuilder` 与 `re-mobile/SKILL.md` 的路径说明全部改成 runtime 目录
   - **已验证**：编译（CI 通过）、`stageServer()` 端到端（点「停止」→「启动」后 attach 成功）、`purgeStaleServer()`（未自伤、未报错）
-- [x] **2026-10-19** 第十五轮：运行中可继续发消息（待发送队列，方案甲，对齐 Operit）
+- [x] **2026-10-19** 第十五轮：运行中可继续发消息（待发送队列，方案甲，对齐 Operit）（CI run #60 绿）
   - **用户需求**：agent 跑着的时候也要能发下一条，现在是一次只能一条
   - **关键发现（P094）**：后端 `AgentRunController.steer()` 早就写好了，`AgentLoop` 每轮开头会 poll、
     `UserSupplementReceived` 事件经 Wire 跨进程、UI 侧 `mergeSupplements()` 会插气泡 ——

@@ -130,6 +130,49 @@ Wire 序列化跨进程，UI 侧 `mergeSupplements()` 也会插气泡。**整条
 **防护**：附件不进队列（要过 `AgentRuntimeImageTransfer`，会和运行中摄取抢管道），
 所以 `hasTextDraft` 只算纯文字；带附件时按钮退回「停止」，不给入队入口。
 
+### P095 · Composable 参数要逐层透传：漏一层就是 Unresolved reference
+
+**现象**：给聊天输入栏加了 6 个队列参数，本地 `grep` 看参数明明都在签名里，
+CI 连续六轮（run #54~#59）都报：
+
+```
+e: AgentChatBody.kt:366:35 Unresolved reference 'queuedMessages'
+e: AgentChatBody.kt:983:36 Unresolved reference 'onQueueExpandedChange'
+```
+
+**根因**：`AgentChatBody.kt` 里的输入栏**不是一层**，是三层独立函数：
+
+```
+AgentChatBody (133)  →  AgentChatScaffold (280)  →  AgentChatBottomBar (897)
+        ↑ 我加了参数           ↑ 没加                    ↑ 用了这些参数
+```
+
+`AgentChatBottomBar` 的调用写在 **`AgentChatScaffold`** 的函数体里，
+不在 `AgentChatBody` 里。所以「在 `AgentChatBody` 签名里补参数」完全不起作用。
+
+**为什么误判了六轮**：
+1. `grep 'queuedMessages'` 命中 165 行（`AgentChatBody` 的签名），看着像已经加好；
+2. 报错行号 983 在文件末尾附近，直觉上以为是同一个函数；
+3. 一度以为是「默认值参数顺序」问题，改错方向浪费两轮。
+
+**教训（最重要的一条）**：
+**改一个用 grep 找到的 Composable 之前，先 `grep -n 'fun '` 把文件里所有函数边界列出来**，
+确认自己改的是不是真正那一层。
+
+**取不到 CI 日志时的救命手段**：
+
+| 手段 | 可用性 |
+|---|---|
+| `GET /actions/jobs/{id}/logs` | ❌ 需要 admin 权限 |
+| artifact 下载（`/artifacts/{id}/zip`） | ❌ 需要 token |
+| **`GET /check-runs/{job_id}/annotations`** | ✅ **公开可读** |
+
+做法：build 步骤里 `echo "::error title=GRADLE::$line"`，错误就进了 check-run
+annotation，之后用上面的接口直接读，不用等整份日志。已在 workflow 里固化。
+
+**防护**：新增 `ci/verify_compose_param_passthrough.py`，不靠编译器，
+比对「被调函数需要的参数」与「调用点传的实参」。实测注入漏传会精确报出缺哪几个。
+
 ### P089 · 三引号原始字符串里的 `$` 同样会被插值（同一个坑的第三个变体）
 
 **现象**：CI 报

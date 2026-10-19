@@ -130,9 +130,13 @@ jobs:
           rc=${PIPESTATUS[0]}
           echo "gradle exit=$rc"
 
-          # 日志下载接口需要 admin 权限，artifact 下载需要 token，都取不到。
-          # 退而求其次：把前几条 `e:` 错误写进 workflow annotation——
-          # 这个走 check-run 的 output，公开可读。
+          # 日志下载接口（GET /actions/jobs/{id}/logs）要 admin 权限，
+          # artifact 下载要 token，脚本环境都拿不到。唯一公开可读的是
+          # check-run annotation —— 所以把前几条错误写成 ::error::，
+          # 之后用
+          #   GET /repos/{owner}/{repo}/check-runs/{job_id}/annotations
+          # 就能直接读到编译错误，不用等整份日志。
+          # 这一招在 run #58 定位「参数加错函数」时救过一次，别再删。
           mapfile -t ERRS < <(grep -E "^e: " "$RUNNER_TEMP/build.log" | head -12)
           if [[ ${#ERRS[@]} -eq 0 ]]; then
             mapfile -t ERRS < <(grep -nE "error:|Unresolved reference|Cannot|FAILURE:" "$RUNNER_TEMP/build.log" | head -12)
@@ -141,17 +145,6 @@ jobs:
             echo "::error title=GRADLE::$line"
           done
           exit $rc
-
-      # 临时步骤：编译失败时把日志带出来。日志接口需要 admin 权限，
-      # 只能靠 artifact 取。定位完就删。
-      - name: 上传编译日志（排障用）
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: build-log-${{ github.sha }}
-          path: ${{ runner.temp }}/build.log
-          if-no-files-found: warn
-          retention-days: 3
 
       - name: 校验并重命名产物
         id: apk
