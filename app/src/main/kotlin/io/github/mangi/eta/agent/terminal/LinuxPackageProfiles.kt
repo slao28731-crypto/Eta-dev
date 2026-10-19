@@ -191,10 +191,13 @@ internal object LinuxPackageProfiles {
      * 这里统一在 `/usr/local/bin` 里建软链，PATH 必定覆盖。
      */
     private fun renderCliLinksCommand(names: List<String>): String = buildString {
+        // 注意：这里的 `$eta_bin` 必须写成 `\$eta_bin`。
+        // Kotlin 字符串里裸写 `$eta_bin` 会被当成模板插值，编译直接报
+        // `Unresolved reference 'eta_bin'`（run #37 真实踩到）。
         append("eta_bin=$(python3 -c \"import sysconfig; print(sysconfig.get_path('scripts'))\") || exit 78; ")
-        append("[ -d \"$eta_bin\" ] || exit 78; ")
+        append("[ -d \"\$eta_bin\" ] || exit 78; ")
         for (name in names) {
-            append("[ -e \"$eta_bin/$name\" ] && ln -sf \"$eta_bin/$name\" /usr/local/bin/$name; ")
+            append("[ -e \"\$eta_bin/$name\" ] && ln -sf \"\$eta_bin/$name\" /usr/local/bin/$name; ")
         }
         append("true")
     }

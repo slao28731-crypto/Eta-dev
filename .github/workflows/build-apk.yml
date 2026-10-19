@@ -50,10 +50,14 @@ jobs:
           python3 ci/verify_profile_decl_order.py
           python3 ci/self_test_profile_decl_order.py
 
-      - name: 本地静态检查（括号 / 资源 / import）
+      - name: 本地静态检查（括号 / 资源 / import / shell 转义）
         shell: bash
         # 与本地跑的是同一个脚本，保证本地过 = CI 过。
-        run: python3 ci/static_check.py
+        # 其中 shell 转义检查专门拦 run #37 那个坑：Kotlin 字符串里裸写
+        # `$eta_bin` 会被当成模板插值，编译报 Unresolved reference。
+        run: |
+          python3 ci/static_check.py
+          python3 ci/self_test_static_check.py
 
       - name: 配置 JDK 25
         uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5

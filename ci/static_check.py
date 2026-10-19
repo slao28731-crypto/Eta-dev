@@ -184,10 +184,73 @@ def check_imports() -> list:
     return errors
 
 
+def check_dollar_escapes() -> list:
+    """Kotlin 字符串里的裸 `$name` 会被当成模板插值。
+
+    run #37 真实踩到：写 `append("[ -d \"$eta_bin\" ] ...")` 时，
+    Kotlin 认为 `$eta_bin` 是变量引用，编译报
+    `Unresolved reference 'eta_bin'`。shell 变量必须写成 `\\$eta_bin`。
+
+    这里把每个字符串字面量拆出来，找出「$ 后接小写标识符」且该标识符
+    不是本地 Kotlin 变量的情况。
+    """
+    errors = []
+    pattern = re.compile(r'"((?:\\.|[^"\\])*)"')
+
+    for rel in KT_FILES:
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        # 收集本文件里所有可被 `$name` 引用的名字：
+        # - val / var / fun
+        # - data class 的构造属性（如 PackageProfileInstallProgress.stepTotal，
+        #   通过扩展函数访问时写 `$stepTotal`，编译器按 receiver 解析）
+        # - 函数参数、for 变量、lambda 参数
+        declared = set(re.findall(r"\b(?:val|var|fun)\s+([a-zA-Z_][A-Za-z0-9_]*)", text))
+        declared |= set(
+            re.findall(
+                r"\(\s*val\s+([a-zA-Z_][A-Za-z0-9_]*)\s*:",
+                text,
+            )
+        )
+        # 本模块内所有 data class 的属性名（跨文件也要算，因为这里只查 3 个文件）
+        for other in KT_FILES:
+            other_text = (ROOT / other).read_text(encoding="utf-8")
+            declared |= set(
+                re.findall(r"^\s*val\s+([a-zA-Z_][A-Za-z0-9_]*)\s*:", other_text, re.MULTILINE)
+            )
+        # 函数参数：`name: Type` 出现在参数列表里
+        declared |= set(
+            re.findall(r"[(,]\s*([a-zA-Z_][A-Za-z0-9_]*)\s*:\s*[A-Z][A-Za-z0-9_<>,.?\s]*", text)
+        )
+        # 具名参数 `foo = bar` 左侧不算变量，但 for 循环变量要算
+        declared |= set(re.findall(r"\bfor\s*\(\s*\(?\s*([a-zA-Z_][A-Za-z0-9_]*)", text))
+        declared |= set(re.findall(r"\bfor\s*\(\s*([a-zA-Z_][A-Za-z0-9_]*)\s+in\b", text))
+        # lambda 参数 `{ x ->` 与 `{ a, b ->`
+        for m in re.finditer(r"\{([^{}]*?)->", text):
+            for part in m.group(1).split(","):
+                candidate = part.strip().split(":")[0].strip()
+                if re.fullmatch(r"[a-zA-Z_][A-Za-z0-9_]*", candidate or ""):
+                    declared.add(candidate)
+        for m in pattern.finditer(text):
+            raw = m.group(1)
+            # 跳过已转义的 \$ 和 ${...} 形式（后者可能是合法表达式）
+            for ref in re.finditer(r"(?<!\\)\$([a-z][A-Za-z0-9_]*)", raw):
+                name = ref.group(1)
+                if name in declared:
+                    continue
+                line = text.count("\n", 0, m.start() + ref.start()) + 1
+                errors.append(
+                    f"{rel}:{line} 字符串里的 $%s 会被 Kotlin 当成插值，"
+                    f"shell 变量要写成 \\$%s" % (name, name)
+                )
+    if not errors:
+        print("  没有未转义的 shell 变量")
+    return errors
+
+
 def main() -> int:
     failures = []
 
-    print("[1/4] 括号平衡")
+    print("[1/5] 括号平衡")
     for rel in KT_FILES:
         path = ROOT / rel
         if not path.is_file():
@@ -198,13 +261,16 @@ def main() -> int:
         if not errs:
             print(f"  [ok] {path.name}")
 
-    print("[2/4] 字符串资源对照")
+    print("[2/5] shell 变量转义（Kotlin 字符串模板）")
+    failures += check_dollar_escapes()
+
+    print("[3/5] 字符串资源对照")
     failures += check_string_resources()
 
-    print("[3/4] 关键 import")
+    print("[4/5] 关键 import")
     failures += check_imports()
 
-    print("[4/4] 委托给声明顺序校验")
+    print("[5/5] 委托给声明顺序校验")
     import subprocess
     for script in ("ci/verify_profile_decl_order.py", "ci/verify_re_lab_profiles.py"):
         proc = subprocess.run(
