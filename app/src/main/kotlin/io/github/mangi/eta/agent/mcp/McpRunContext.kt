@@ -30,7 +30,8 @@ internal class McpRunSnapshot(
             val description = buildString {
                 append("MCP 服务器「").append(tool.server.name).append("」提供的工具")
                 tool.definition.description.trim().takeIf { it.isNotBlank() }?.let {
-                    append("。 ").append(it)
+                    // 只截目录里的展示文本；数据库仍保留完整描述供设置页查看。
+                    append("。 ").append(it.take(MAX_CATALOG_DESCRIPTION_CHARS))
                 }
             }
             destination.put(
@@ -53,7 +54,8 @@ internal class McpRunSnapshot(
         suspend fun load(): McpRunSnapshot {
             val projected = mutableListOf<McpRunTool>()
             val now = System.currentTimeMillis()
-            McpServerRepository.enabledServers().forEach { configured ->
+            for (configured in McpServerRepository.enabledServers()) {
+                if (projected.size >= MAX_RUN_TOOLS) break
                 val bearerToken = McpServerRepository.bearerToken(configured.id)
                 val needsRefresh = configured.lastProtocolVersion == null ||
                     configured.lastProtocolVersion == McpProtocolMode.LATEST &&
@@ -64,12 +66,17 @@ internal class McpRunSnapshot(
                             McpServerRepository.update(it)
                         }
                     }.getOrNull()
-                        ?: return@forEach
+                        ?: continue
                 } else {
                     configured
                 }
-                server.activeTools.forEach { tool ->
-                    if (projected.size >= MAX_RUN_TOOLS) return@forEach
+                // 额度是所有服务共享的：前面的服务占满后，后面的一个工具也进不来。
+                // 必须在这里显式 take(remaining)：早期写法用 return@forEach 判断上限，
+                // 它只跳过当前元素、外层继续空转，超额的工具被静默丢弃且不留任何痕迹，
+                // 模型因此拿着「已全部启用」的承诺去调用根本不存在的名字（TOOL_NOT_AVAILABLE）。
+                val remaining = MAX_RUN_TOOLS - projected.size
+                if (remaining <= 0) break
+                server.activeTools.take(remaining).forEach { tool ->
                     projected += McpRunTool(
                         modelName = mcpModelToolName(server.id, tool.name),
                         server = server,
@@ -81,7 +88,57 @@ internal class McpRunSnapshot(
             return McpRunSnapshot(projected)
         }
 
-        private const val MAX_RUN_TOOLS = 64
+        /**
+         * 按 [load] 完全相同的额度规则，预估每个已启用服务在下次 run 里**实际**能进目录的工具数。
+         *
+         * 存在理由：`mcp_add_server` 曾经无条件回复「已启用全部工具」，而实际进目录的
+         * 受 [MAX_RUN_TOOLS] 全局额度限制，100 个工具里只有 64 个能被模型看见。
+         * 模型照着「全部启用」的承诺去调用被裁掉的名字，必然拿到 TOOL_NOT_AVAILABLE。
+         * 这里把「承诺」和「实际」对齐，让模型一开始就知道哪些名字真的能喊。
+         *
+         * 用已入库的 [McpServerSetting.activeTools] 估算，不发网络请求：调用方（新增服务、
+         * 管理工具）刚做过 discover，库里的数据就是最新的，再连一次只会拖慢工具响应。
+         */
+        suspend fun projectedToolCounts(): Map<String, Int> {
+            val counts = mutableMapOf<String, Int>()
+            var used = 0
+            for (server in McpServerRepository.enabledServers()) {
+                val remaining = MAX_RUN_TOOLS - used
+                if (remaining <= 0) break
+                val admitted = server.activeTools.size.coerceAtMost(remaining)
+                counts[server.id] = admitted
+                used += admitted
+            }
+            return counts
+        }
+
+        /** 全部已启用服务共享的额度总数。 */
+        suspend fun totalEnabledToolCount(): Int =
+            McpServerRepository.enabledServers().sumOf { it.activeTools.size }
+
+        /** 单个工具描述的目录展示上限，供调用方保持文案一致。 */
+        val catalogDescriptionChars: Int get() = MAX_CATALOG_DESCRIPTION_CHARS
+
+        /**
+         * 单次 run 最多装入的 MCP 工具总数（所有启用的服务共享这一个额度）。
+         *
+         * 这不是「一轮能调几次」的限制，而是「模型这一轮能看见多少个 MCP 工具」。
+         * 上游原值 64 在双服务（51 + 49 = 100）场景下会把后一个服务的工具几乎全裁掉，
+         * 模型只收到「已启用全部工具」的承诺，调用被裁掉的名字必然失败。
+         *
+         * 与 [McpHttpClient.MAX_DISCOVERED_TOOLS] 的关系：发现上限必须不低于这里，
+         * 否则工具连数据库都进不来，调大这个值也是白调。
+         */
+        const val MAX_RUN_TOOLS = 256
+
+        /**
+         * 拼进模型目录时单个工具描述的字符上限。
+         *
+         * 入库保留完整的 2000 字（设置页要看得全），但目录里只需要「这工具干什么」。
+         * 100 个工具按 2000 字算约 20 万字符，光描述就能吃掉几万 token；
+         * 截到 400 字可以省下大半，且不影响模型判断该不该调用。
+         */
+        private const val MAX_CATALOG_DESCRIPTION_CHARS = 400
     }
 }
 

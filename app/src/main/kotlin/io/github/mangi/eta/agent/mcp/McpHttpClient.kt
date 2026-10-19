@@ -493,8 +493,17 @@ internal class McpHttpClient(
         const val MAX_ERROR_CHARS = 200
         const val MAX_TITLE_CHARS = 160
         const val MAX_DESCRIPTION_CHARS = 2_000
-        const val MAX_DISCOVERED_TOOLS = 128
-        const val MAX_LIST_PAGES = 8
+
+        /**
+         * 单次 tools/list 最多记录的 MCP 工具数。
+         *
+         * 必须 >= [io.github.mangi.eta.agent.mcp.McpRunSnapshot.MAX_RUN_TOOLS]，
+         * 否则超出的工具连数据库都进不去，run 侧再怎么放宽额度也拿不到它们。
+         * 512 足够覆盖单服务超大目录（实测有个服务一次暴露 150+ 工具）。
+         */
+        const val MAX_DISCOVERED_TOOLS = 512
+        /** 与 [MAX_DISCOVERED_TOOLS] 配套：按每页 32 个保守估计，16 页仍能翻满额度。 */
+        const val MAX_LIST_PAGES = 16
         val SUPPORTED_LEGACY_PROTOCOL_VERSIONS = setOf(
             "2024-11-05",
             "2025-03-26",

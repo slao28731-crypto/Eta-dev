@@ -113,6 +113,49 @@ class McpRunContextTest {
             server.stop(0)
         }
     }
+    /**
+     * 目录里的描述必须被截断：100 个工具按完整描述拼进请求会白烧几万 token。
+     * 数据库仍保留全文，这里只约束喂给模型的那一份。
+     */
+    @Test
+    fun catalogDescriptionIsBoundedButSchemaIsIntact() {
+        val definition = McpToolDefinition(
+            name = "search",
+            description = "描".repeat(2_000),
+            inputSchemaJson = """{"type":"object","properties":{"q":{"type":"string"}}}""",
+        )
+        val setting = McpServerSetting(
+            id = "server",
+            name = "Server",
+            url = "https://example.com/mcp",
+        )
+        val destination = org.json.JSONArray()
+        McpRunSnapshot(listOf(McpRunTool("mcp_server_search", setting, definition, null)))
+            .appendModelTools(destination)
+
+        val function = destination.getJSONObject(0).getJSONObject("function")
+        val description = function.getString("description")
+        assertTrue(
+            "描述应被截断到目录上限，实际长度 ${description.length}",
+            description.length <= 400 + "MCP 服务器「Server」提供的工具。 ".length,
+        )
+        // 截描述不能连带裁掉参数 schema，否则模型无法正确构造参数。
+        assertTrue(function.getJSONObject("parameters").has("properties"))
+        assertTrue(function.has("name"))
+    }
+
+    /**
+     * 额度是所有服务共享的：两个服务各 150 个工具时，第二个服务必然拿不到满额。
+     * 这条锁住「全局共享」语义，避免以后有人按服务独立分配额度。
+     */
+    @Test
+    fun runToolBudgetIsSharedAcrossServers() {
+        assertEquals(256, McpRunSnapshot.MAX_RUN_TOOLS)
+        assertTrue(
+            "发现上限必须不低于运行上限，否则工具连库都进不来",
+            McpHttpClient.MAX_DISCOVERED_TOOLS >= McpRunSnapshot.MAX_RUN_TOOLS,
+        )
+    }
 
     private fun localServer(handler: (HttpExchange) -> Unit): HttpServer =
         HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {

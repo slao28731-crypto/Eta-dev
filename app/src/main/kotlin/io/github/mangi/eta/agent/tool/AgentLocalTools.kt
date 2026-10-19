@@ -39,6 +39,7 @@ import io.github.mangi.eta.agent.skill.GitHubSkillInspection
 import io.github.mangi.eta.agent.skill.GitHubSkillRepository
 import io.github.mangi.eta.agent.skill.GitHubSkillSourceException
 import io.github.mangi.eta.agent.skill.PublicGitHubSkillSource
+import io.github.mangi.eta.agent.mcp.McpRunSnapshot
 import io.github.mangi.eta.agent.mcp.McpServerManager
 import io.github.mangi.eta.agent.mcp.mcpModelToolName
 import io.github.mangi.eta.agent.mcp.validateMcpEndpoint
@@ -940,9 +941,12 @@ internal class AgentLocalTools(
     private fun mcpListServers(args: JSONObject): String {
         val includeTools = args.optBoolean("includeTools", true)
         val servers = runBlocking { McpServerRepository.servers() }
+        val projected = runBlocking { McpRunSnapshot.projectedToolCounts() }
+        val totalEnabled = servers.filter { it.enabled }.sumOf { it.activeTools.size }
         val items = JSONArray()
         servers.forEach { server ->
             val enabledCount = server.tools.count { it.name in server.enabledToolNames }
+            val registeredCount = projected[server.id]
             val entry = JSONObject()
                 .put("id", server.id)
                 .put("name", server.name)
@@ -952,6 +956,13 @@ internal class AgentLocalTools(
                 .put("authorizationType", server.authorizationType)
                 .put("toolCount", server.tools.size)
                 .put("enabledToolCount", enabledCount)
+            if (server.enabled) {
+                // 已启用但被全局额度裁掉的工具，模型必须知道，否则会照名字硬调。
+                entry.put(
+                    "registeredToolCount",
+                    registeredCount ?: 0,
+                )
+            }
             if (includeTools) {
                 val tools = JSONArray()
                 server.tools.forEach { tool ->
@@ -967,11 +978,24 @@ internal class AgentLocalTools(
             }
             items.put(entry)
         }
-        return JSONObject()
+        val result = JSONObject()
             .put("ok", true)
             .put("count", servers.size)
             .put("items", items)
-            .toString()
+            .put("enabledToolTotal", totalEnabled)
+            .put("runToolLimit", McpRunSnapshot.MAX_RUN_TOOLS)
+            // 接近上限时主动给出精简建议：模型有权自己调 mcp_set_tool_enabled，
+            // 与其让它在调用失败后反复试错，不如在目录层面就告诉它该收一收。
+            .put("overLimit", totalEnabled > McpRunSnapshot.MAX_RUN_TOOLS)
+        if (totalEnabled > McpRunSnapshot.MAX_RUN_TOOLS) {
+            result.put(
+                "hint",
+                "已启用 $totalEnabled 个 MCP 工具，超过单轮上限 ${McpRunSnapshot.MAX_RUN_TOOLS}，" +
+                    "超出的工具下一轮不会出现在目录中，调用会返回 TOOL_NOT_AVAILABLE。" +
+                    "请用 mcp_set_tool_enabled 关闭不常用的工具，或 mcp_set_server_enabled 停用整个服务器。",
+            )
+        }
+        return result.toString()
     }
 
     private fun mcpAddServer(args: JSONObject): String {
@@ -1040,13 +1064,40 @@ internal class AgentLocalTools(
         }
         val added = runBlocking { McpServerRepository.add(discovered, token) }
 
+        // 把「承诺」对齐到「实际」：本轮之前无条件回「已启用全部工具」，但下一轮真正
+        // 进目录的数量受全局额度限制。模型照着被裁掉的名字调用会拿到 TOOL_NOT_AVAILABLE，
+        // 而它并不知道自己错在哪。这里如实报出实际可调数量与不可调清单。
+        val projected = runBlocking { McpRunSnapshot.projectedToolCounts() }[added.id]
+            ?: added.activeTools.size
+        val listed = added.activeTools.take(projected)
+        val dropped = added.activeTools.drop(projected)
+
         val tools = JSONArray()
-        added.activeTools.forEach { tool ->
+        listed.forEach { tool ->
             tools.put(
                 JSONObject()
                     .put("name", tool.name)
                     .put("modelName", mcpModelToolName(added.id, tool.name)),
             )
+        }
+        val unavailable = JSONArray()
+        dropped.forEach { tool ->
+            unavailable.put(
+                JSONObject()
+                    .put("name", tool.name)
+                    .put("modelName", mcpModelToolName(added.id, tool.name)),
+            )
+        }
+        val note = if (dropped.isEmpty()) {
+            "已保存并启用全部工具。MCP 工具从下一轮对话开始可用，" +
+                "本轮拿不到这些工具；下一轮用 modelTools 里的 modelName 直接调用。"
+        } else {
+            "已保存。服务共 ${added.tools.size} 个工具，但因单轮 MCP 工具总额度" +
+                "（${McpRunSnapshot.MAX_RUN_TOOLS}）已被其他服务占用，" +
+                "$projected 个可进入下一轮目录，其余 ${dropped.size} 个不可调用。" +
+                "需要让它们可用，请用 mcp_set_tool_enabled 关闭部分工具，" +
+                "或 mcp_set_server_enabled 停用不用的服务器。" +
+                "下一轮只能调用 modelTools 里的 modelName，unavailableModelTools 里的名字调用会失败。"
         }
         return JSONObject()
             .put("ok", true)
@@ -1057,14 +1108,12 @@ internal class AgentLocalTools(
             .put("bearerToken", if (token.isBlank()) JSONObject.NULL else MASKED_TOKEN)
             .put("toolCount", added.tools.size)
             .put("enabledToolCount", added.activeTools.size)
+            .put("registeredToolCount", projected)
             .put("modelTools", tools)
+            .put("unavailableModelTools", unavailable)
             .put("protocolVersion", added.lastProtocolVersion ?: JSONObject.NULL)
             .put("nextTurnRequired", true)
-            .put(
-                "note",
-                "已保存并启用全部工具。MCP 工具从下一轮对话开始可用，" +
-                    "本轮拿不到这些工具；下一轮用 modelTools 里的 modelName 直接调用。",
-            )
+            .put("note", note)
             .toString()
     }
 
