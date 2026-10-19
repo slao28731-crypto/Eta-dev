@@ -138,29 +138,26 @@ Agent 自己就能添加 MCP 服务器，不需要用户进设置页。6 个工�
 
 ## 下一步（最重要）
 
-**第十二轮已完成并编译通过（CI run #44，commit `19b5f55`），等真机验收。**
+**第十三轮已完成并编译通过（CI run #48，commit `2c536dc`），等真机验收。**
 
-- 装 run #44 的产物，进 设置 → 终端 → Linux 环境 → 可选工具
-- **新的一项：Android SDK + Gradle**（约 250MB）→ 点安装，6 步走完
-- **逆向分析工具组**顺带多了 dex2jar 与 angr CLI（如果之前已装过，需删掉 marker 重装才会补上）
+- 装 run #48 的产物，进 设置 → 终端 → Linux 环境 → 可选工具
+- **新增 7 个「渗透 ·」分组**（方案 B，48 项清单）：
+  侦察 220MB / Web 110MB / 网络 42MB / 凭据 150MB / 云审计 300MB / 内网AD 90MB / 无线 10MB
+- 每组独立安装、独立 marker，失败只影响一组
 - 自检（贴原始输出）：
   ```sh
-  for t in aapt2 aapt adb gradle d2j-dex2jar angr r2; do printf '%-14s %s\n' "$t" "$(command -v "$t" 2>/dev/null || echo MISSING)"; done
-  aapt2 version
-  adb version | head -1
-  gradle --version | head -6
-  ls -la /opt/eta/android-sdk/platforms/android-35/android.jar
-  angr --help | head -3
+  for t in nuclei httpx subfinder katana dnsx naabu gau ffuf gobuster feroxbuster dalfox nmap masscan sqlmap hydra hashcat aws kubectl semgrep; do
+    printf '%-12s %s\n' "$t" "$(command -v "$t" 2>/dev/null || echo MISSING)"
+  done
+  nuclei -version
+  nmap --version | head -2
+  hashcat -I 2>&1 | head -8
+  ls /opt/eta/pentest/data/
   ```
-- **真正编 APK 的验证**（如果要测）：
-  ```sh
-  mkdir -p /tmp/t && cd /tmp/t
-  echo 'rootProject.name="t"' > settings.gradle.kts
-  echo 'tasks.register("hi"){doLast{println("OK")}}' > build.gradle.kts
-  gradle hi --no-daemon --console=plain
-  ```
-- 77 个 skill ZIP 在 `/sdcard/Download/eta-skills/zips/`，待导入
-- **NDK 那项**仍未真机验收（导入 728MB → 解压 2.5GB）
+- **已知限制**：hashcat 需要 OpenCL（安装时已带 pocl + ocl-icd）；NetExec 只能从
+  GitHub 源码装；aircrack-ng 只能离线解 pcap
+- 之前几轮未验收的仍待验：Android SDK + Gradle（250MB）、NDK 导入（728MB → 2.5GB）、
+  77 个 skill ZIP 导入
 
 第五轮验收（删除 demo 目录）用户原话：「刚刚我去Github仓库看了一下，demo文件夹里面都是之前用的HTML预览图，请你删除这个文件夹和内容，以后预览图只在本地生成」。
 第六轮用户定调：「按照你推荐进行」= 530KB 全量切分 + A/C 工具组 + 解掉回编译限制。**已验收**。

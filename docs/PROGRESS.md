@@ -60,6 +60,15 @@
   - 代码改动：`FridaPaths` 新增 `RUNTIME_DIR` + `runtimeServerFile()`；新增 `stageServer()`（起之前复制 + chmod 755，大小一致时只补权限）；`startServer()` / `detectServerPid()` 改用 runtime 路径并先 `cd`；新增 `purgeStaleServer()` 清掉老版本跑在 filesDir 的残留（**只比 cmdline 第一个 token，整体 contains 会自杀**）；`ensureRunning()` 加 `staleForeign` 判定；`stopServer()` 也能清野生进程
   - 顺带修：中文 `values-b+zh+Hans/strings.xml` 补 7 条 `linux_frida_*` 并同步 `linux_apk_tools_ready/summary`（上一轮只改了英文）；`AgentPromptBuilder` 与 `re-mobile/SKILL.md` 的路径说明全部改成 runtime 目录
   - **已验证**：编译（CI 通过）、`stageServer()` 端到端（点「停止」→「启动」后 attach 成功）、`purgeStaleServer()`（未自伤、未报错）
+- [x] **2026-10-19** 第十三轮：内置渗透测试工具 7 组（方案 B，48 项清单）（CI run #48 绿）
+  - **核实**：GitHub Releases 13 项版本号与资产名**逐字对得上**（含 `gobuster_Linux_arm64` 大写 L、`aarch64-linux-feroxbuster` 架构前置、`dalfox-…-musl` 三个陷阱）；apt 18 项全部有候选；PyPI 9 项里 **8 个可用**
+  - **修正清单三处**：① **`netexec` 不在 PyPI**（`netexec`/`nxc`/`crackmapexec` 全 404，官方只给 `pipx install git+…`）；② **hashcat 需要 `ocl-icd-libopencl1`**（只装 hashcat 报 `No OpenCL`，pocl 只有 ICD 配置缺加载器，补上后 `hashcat -I` 列出 Qualcomm CPU）；③ 体积普遍偏大（nuclei 60→41MB、httpx 40→18MB）
+  - **7 组 profile**：RECON 220MB / WEB 110MB / NET 42MB / CRED 150MB / CLOUD 300MB / AD 90MB / WIFI 10MB。各自独立 marker，失败只影响一组
+  - **数据裁剪省 1.5GB**：nuclei-templates 用 `git sparse-checkout` 只取 3 个目录（100MB→20MB）；SecLists 只取 `Discovery/Web-Content`（1.5GB→30MB）；rockyou 取前 10 万条
+  - **新增 `ci/verify_pentest_toolkits.py`**：分组步骤数 + 每段 shell 的 bash/dash 语法 + **16 个下载 URL 全部 HEAD**（实测 16/16 200）
+  - **run #46 踩坑（P089，第三次同类）**：三引号原始字符串里的 `$f`/`$d`/`$src` 没转义。**`static_check.py` 只扫普通字符串，三引号内容被跳过**——同一个坑换了个壳就漏。已补三引号扫描 + 自测用例
+  - **run #47 踩坑**：自测脚本的 `COPY_FILES` 没含新文件，导致两个事故注入在「文件不存在」上先失败
+  - **run #48 绿**，产物 `eta-apk-2c536dc…`（34,594,342 字节）
 - [x] **2026-10-19** 第十二轮：Android SDK + Gradle（手机真能编 APK）+ dex2jar + angr CLI（CI run #44 绿）
   - **纠正上一轮的错误结论**：我说「Android SDK 装不了」是错的。错在把「Google 不发 aarch64 版」直接推成「没得装」。看了用户给的两个真实项目（`AAswordman/Operit`、`jieapi/aicode`）才打通
   - **两个项目的做法**：Operit 下 x86_64 cmdline-tools + 自带 `aapt2-arm64-v8a` 替换，还解压改写 Gradle 缓存里的 `aapt2-*-linux.jar`；aicode 直接用 `lzhiyong/android-sdk-tools` 的 `android-sdk-tools-static-aarch64.zip` 覆盖原生二进制，并用 `android.aapt2FromMavenOverride`。**本实现走后者**（覆盖 + override），因为不碰缓存、升级 Gradle 不失效
