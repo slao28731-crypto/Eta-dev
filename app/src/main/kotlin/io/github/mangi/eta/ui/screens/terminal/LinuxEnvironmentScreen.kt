@@ -82,6 +82,8 @@ private enum class InstallTarget {
     NODE,
     SSH,
     KIMI,
+    RE_LAB,
+    ANGR,
 }
 
 private data class PackageProfileUi(
@@ -124,6 +126,20 @@ private val packageProfileUis = listOf(
         titleRes = R.string.linux_kimi_tools,
         summaryRes = R.string.linux_kimi_tools_summary,
         readyRes = R.string.linux_kimi_tools_ready,
+    ),
+    PackageProfileUi(
+        target = InstallTarget.RE_LAB,
+        profile = LinuxPackageProfiles.RE_LAB,
+        titleRes = R.string.linux_re_lab_tools,
+        summaryRes = R.string.linux_re_lab_tools_summary,
+        readyRes = R.string.linux_re_lab_tools_ready,
+    ),
+    PackageProfileUi(
+        target = InstallTarget.ANGR,
+        profile = LinuxPackageProfiles.ANGR,
+        titleRes = R.string.linux_angr_tools,
+        summaryRes = R.string.linux_angr_tools_summary,
+        readyRes = R.string.linux_angr_tools_ready,
     ),
 )
 

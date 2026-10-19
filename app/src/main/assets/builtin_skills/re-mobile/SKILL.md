@@ -43,6 +43,13 @@ su -c 'id'    # 确认 root 真的能拿到
 | 脱壳 dump dex | `environment=linux` | `frida-dexdump 2.0.1` | ✅ 已随 Frida 一起安装 |
 | 分析 `.so` / ELF | `environment=linux` | `readelf` `objdump` `nm` `strings` `file` `hexdump` `xxd` | ✅ 已实测可用（binutils 2.44） |
 | 写脚本解析汇编、改 ELF | `environment=linux` | `python3 3.14` + `capstone 5.0.7` + `lief 1.0.0` | ✅ 已实测可用 |
+| **约束求解 / 还原校验算法** | `environment=linux` | `z3-solver` | ✅ 随「逆向分析工具组」安装 |
+| **片段仿真 / 指令级模拟** | `environment=linux` | `unicorn` | ✅ 同上 |
+| **判壳 / 加壳器识别** | `environment=linux` | `apkid` | ✅ 同上 |
+| **一键过 SSL Pinning** | `environment=linux` | `objection` | ✅ 同上 |
+| **抓包 / 改包 / TLS 解密** | `environment=linux` | `mitmproxy`（`mitmdump`） | ✅ 同上 |
+| **免 IDA 的 so 静态分析** | `environment=linux` | `radare2` / `r2` | ✅ 同上（apt 装，非 Releases） |
+| **符号执行（重）** | `environment=linux` | `angr` | ⚠️ 单独一项，约 900MB，按需装 |
 | 抓包 / 改包 | `environment=linux` | `python3` `curl` `openssl` `node` | 部分可用 |
 | Android 系统命令 | `environment=android` + `identity=root` | `pm` `am` `dumpsys` `input` `screencap` `getprop` `cmd` | ✅ 已实测可用 |
 | 读写文件 / 搜代码 | 默认文件工具 | `read_file` `grep_files` `glob_files` `list_directory` | 内置 |
@@ -52,7 +59,7 @@ su -c 'id'    # 确认 root 真的能拿到
 ```bash
 # 逐个查，不要写成 `command -v a b c`：dash 只认第一个操作数，bash 会静默跳过缺失项
 for t in jadx apktool smali baksmali aapt2 apksigner readelf objdump \
-         frida frida-ps frida-dexdump; do
+         frida frida-ps frida-dexdump r2 radare2 apkid objection mitmdump; do
   printf '%-14s %s\n' "$t" "$(command -v "$t" 2>/dev/null || echo MISSING)"
 done
 ```
@@ -186,8 +193,55 @@ lib = lief.parse("libgame.so")
 # 改导出、打补丁、加段都在这里做
 lib.write("libgame_patched.so")
 ```
-
 细节读 `references/binary-re.md` 和 `references/apk-static.md`。
+
+**没有 IDA 也能做 so 静态分析：radare2**
+
+手机上不装 IDA，`radare2` 是替代品，它能做反汇编、交叉引用、函数图，与 IDA 的核心用途重合：
+
+```bash
+r2 -A libgame.so                      # -A 自动分析
+# 进入交互后
+iz                                    # 列字符串
+axt @ str.hello                       # 谁引用了这个字符串（xref）
+afl                                   # 列所有函数
+pdf @ sym.check_sign                  # 反汇编某个函数
+```
+非交互批量用 `r2 -A -q -c "iz" -c "afl" libgame.so`，适合脚本化。
+
+**判壳用 APKiD，别靠肉眼猜**
+
+```bash
+apkid target.apk                      # 直接给加固/编译器/混淆器结论
+apkid -j target.apk                   # JSON，便于脚本读
+```
+先判壳再决定走脱壳还是原生分析，比看 `lib/` 文件名更准（APKiD 用的是 YARA 规则库）。
+
+**约束求解用 z3，还原校验算法**
+
+看到一串 `if (x * 31 + 7 == 1234)` 之类的判断，手算不如直接丢给 z3：
+
+```python
+import z3
+x = z3.BitVec('x', 32)
+s = z3.Solver()
+s.add(x * 31 + 7 == 1234)
+print(s.check(), s.model())
+```
+
+**片段仿真用 unicorn，跑单个函数不启整个 App**
+
+```python
+from unicorn import Uc, UC_ARCH_ARM64, UC_MODE_ARM
+from unicorn.arm64_const import UC_ARM64_REG_X0
+uc = Uc(UC_ARCH_ARM64, UC_MODE_ARM)
+uc.mem_map(0x1000, 0x1000)
+uc.mem_write(0x1000, code_bytes)
+uc.emu_start(0x1000, 0x1000 + len(code_bytes))
+print(hex(uc.reg_read(UC_ARM64_REG_X0)))
+```
+
+
 
 >### 第 4 步：动态分析（Frida）
 
@@ -334,6 +388,36 @@ Java.perform(function () {
 ```
 
 **协议格式还原**：抓到的二进制先 `xxd` 看头部魔数，再判是不是 protobuf（字段 tag 低 3 位是 wire type）或自定义头。
+
+**真抓包：mitmproxy（已随逆向分析工具组安装）**
+
+```bash
+# 7.3 起一个只监听本地的代理，输出保存下来便于回看
+mitmdump -p 8080 --set block_global=false -w /workspace/cap.flow
+
+# 7.4 让设备走这个代理（App 已 root 时最简单的方式）
+settings put global http_proxy 127.0.0.1:8080
+# 用完记得关：settings put global http_proxy :0
+```
+
+**Android 7+ 的坑，必须先处理**：系统默认只信 `/system/etc/security/cacerts` 里的证书，用户证书一律不认。
+mitmproxy 生成的 CA 要转成系统证书格式：
+
+```bash
+# 证书哈希文件名是 `<subject_hash_old>.0`，不是随便起的
+openssl x509 -inform PEM -subject_hash_old -in ~/.mitmproxy/mitmproxy-ca-cert.pem | head -1
+# 把 pem 改名成 <hash>.0 后推到系统证书目录（需要 root 且 /system 可写，或走 Magisk 模块）
+cp mitmproxy-ca-cert.pem /system/etc/security/cacerts/<hash>.0
+chmod 644 /system/etc/security/cacerts/<hash>.0
+```
+
+**更省事的替代**：`objection` 一条命令过掉 pinning，不用手工布证书：
+
+```bash
+objection -g com.target.app explore --startup-command "android sslpinning disable"
+```
+
+**抓不到流量时按这个顺序排**：① 代理没生效（查 `settings get global http_proxy`）② CA 不是系统证书（Android 7+）③ App 自己走 socket 不走系统代理 ④ 有 pinning ⑤ 有 QUIC/HTTP3（UDP 443，代理抓不到）。
 
 细节读 `references/protocol-capture.md`。
 

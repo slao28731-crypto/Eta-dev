@@ -131,6 +131,10 @@ internal object AgentPromptBuilder {
                     "改完 dex 也无法签名装回；遇到这种设备要直接说明范围，不要逐条试必然失败的步骤。" +
                     "Unity IL2CPP 的类型还原依赖 Il2CppDumper（.NET 程序），手机端装不上，" +
                     "只能让用户在电脑上跑完再把 dump.cs / script.json 传回来。" +
+                    "逆向分析工具组（设置 → 终端 → Linux 环境 → 逆向分析工具组）提供 z3 约束求解、" +
+                    "unicorn 片段仿真、APKiD 判壳、objection 一键过 SSL Pinning、mitmproxy 抓包、" +
+                    "radare2 免 IDA 的 so 静态分析；angr 符号执行是单独一项（约 900MB，按需安装）。" +
+                    "这些都需要先装好 Python 环境；未安装时提示用户在设置里点安装，不要 pip install 或 apt install。" +
                     "读取图片内容调用 read_image；同一轮最多读取一张，观察返回内容后再读下一张。" +
                     executionContext?.let { "\n" + it.description(rootAvailable) }.orEmpty(),
             ))

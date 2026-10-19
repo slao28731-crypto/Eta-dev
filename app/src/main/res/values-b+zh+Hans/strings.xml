@@ -988,6 +988,12 @@
   <string name="linux_frida_stop">停止</string>
   <string name="linux_frida_running">运行中</string>
   <string name="linux_python_tools">Python / uv 环境</string>
+  <string name="linux_re_lab_tools">逆向分析工具组</string>
+  <string name="linux_re_lab_tools_summary">安装 z3、unicorn、APKiD、objection、mitmproxy 与 radare2；需预留 400 MB。补上约束求解、判壳、一键过 SSL Pinning、抓包与免 IDA 的 so 静态分析。</string>
+  <string name="linux_re_lab_tools_ready">z3、unicorn、APKiD、objection、mitmproxy 与 radare2 已就绪</string>
+  <string name="linux_angr_tools">angr 符号执行</string>
+  <string name="linux_angr_tools_summary">安装 angr 及其依赖树（pyvex、pypcode、cle、lief）；需预留 900 MB。仅在大二进制上做符号执行与约束求解时才需要。</string>
+  <string name="linux_angr_tools_ready">angr 已就绪</string>
   <string name="linux_python_tools_summary">安装最新正式版 uv；Python 版本和项目环境由 uv 按需下载与管理</string>
   <string name="linux_python_tools_ready">uv 与最新正式版 Python 已就绪</string>
   <string name="linux_python_tools_summary_debian">安装最新正式版 uv；Python 版本和项目环境由 uv 按需下载与管理</string>

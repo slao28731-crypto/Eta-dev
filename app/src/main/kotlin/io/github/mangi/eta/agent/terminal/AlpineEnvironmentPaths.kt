@@ -12,6 +12,10 @@ internal object AlpineEnvironmentPaths {
     const val NODE_TOOLS_MARKER = ".eta-node-tools-ready"
     const val SSH_TOOLS_MARKER = ".eta-ssh-tools-ready"
     const val KIMI_TOOLS_MARKER = ".eta-kimi-tools-ready"
+    /** 逆向分析工具组（z3/unicorn/apkid/objection/mitmproxy/radare2）。 */
+    const val RE_LAB_MARKER = ".eta-re-lab-ready"
+    /** angr 符号执行单独一组：体积大（含 pyvex/pypcode/lief/cle），默认关。 */
+    const val ANGR_MARKER = ".eta-angr-ready"
     const val TOOLSET_REVISION = 1
     // revision 2：补齐 ARM64 aapt2，解掉「只解码不回编译」的限制。
     const val APK_ANALYSIS_REVISION = 2
@@ -20,6 +24,9 @@ internal object AlpineEnvironmentPaths {
     const val NODE_TOOLS_REVISION = 2
     const val SSH_TOOLS_REVISION = 1
     const val KIMI_TOOLS_REVISION = 1
+    const val RE_LAB_REVISION = 1
+    const val ANGR_REVISION = 1
+    // 两个新 profile 的 marker 说明见 LinuxPackageProfiles.RE_LAB / ANGR 的注释。
 
     fun environmentDir(context: Context): File =
         LinuxEnvironmentPaths.environmentDir(context, LinuxDistribution.ALPINE)
