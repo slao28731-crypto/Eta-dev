@@ -82,8 +82,28 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
     private val resultIo = Executors.newSingleThreadExecutor { runnable -> Thread(runnable, "agent-result-io") }
     private val serviceMessenger = Messenger(IncomingHandler())
 
+    /**
+     * 多并发改造（第 1 批）：所有在跑的 run，按 runId 索引。
+     *
+     * 改造前的 `activeSession: AgentRuntimeSession?` 已被彻底删除 ——
+     * 它是「一条对话发消息就掐死另一条」的根源（P096）。
+     *
+     * [primaryRunId] 表示**当前在浮层上展示的那一个**：
+     * overlay 胶囊、暂停/恢复按钮、补充指令输入框在物理上都只能对应一个 run
+     * （一个窗口、一颗按钮）。所以约定：**谁是主任务，谁上浮层；其余的安静跑。**
+     */
+    private val activeSessions = java.util.concurrent.ConcurrentHashMap<String, AgentRuntimeSession>()
+
+    /** 当前占据浮层的主任务 runId；null 表示没有主任务。 */
     @Volatile
-    private var activeSession: AgentRuntimeSession? = null
+    private var primaryRunId: String? = null
+
+    /** 取主任务。所有 overlay 相关的操作都走它，保证「只有一个在画界面」。 */
+    private fun primarySession(): AgentRuntimeSession? {
+        val id = primaryRunId ?: return null
+        return activeSessions[id]
+    }
+
     private var startRequestGeneration = 0L
     private var pendingStartRequest: PendingStartRequest? = null
 
@@ -111,7 +131,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                 holder.value = next
                 AgentExecutionService.updateRunStatus(
                     this@AgentRuntimeService,
-                    next.status.takeIf { activeSession?.isTerminal == false },
+                    next.status.takeIf { primarySession()?.isTerminal == false },
                 )
             }
     }
@@ -170,14 +190,14 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action != ACTION_KEEP_ALIVE || activeSession == null) {
+        if (intent?.action != ACTION_KEEP_ALIVE || activeSessions.isEmpty()) {
             stopSelf(startId)
         }
         return START_NOT_STICKY
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
-        if (activeSession?.isTerminal == false) {
+        if (activeSessions.values.any { !it.isTerminal }) {
             AndroidAgentLogger.debug {
                 "Agent runtime client unbound while run is active; detached run continues"
             }
@@ -201,8 +221,9 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
             )
         }
         pendingStartRequest = null
-        activeSession?.cancel("Agent Runtime 服务已停止")
-        activeSession = null
+        activeSessions.values.forEach { it.cancel("Agent Runtime 服务已停止") }
+        activeSessions.clear()
+        primaryRunId = null
         resultIo.shutdownNow()
         mainHandler.removeCallbacksAndMessages(null)
         AgentOverlayClearance.detach(clearanceHost)
@@ -366,7 +387,11 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         request: AgentRuntimeWire.RunRequest,
         replyTo: Messenger? = null,
     ) {
-        activeSession?.controller?.cancel()
+        // 多并发改造：**不再无条件取消旧任务**。
+        // 原代码这里是 `activeSession?.controller?.cancel()` —— 一条对话在跑、
+        // 另开对话发消息就把前一条掐死，根因就在这一行（见 P096）。
+        // 现在同一个 runId 重入才取消（重试/续跑），不同 runId 各跑各的。
+        activeSessions[request.runId]?.controller?.cancel()
         val session = AgentRuntimeSession(
             runId = request.runId,
             operation = request.operation,
@@ -385,7 +410,13 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
             )) {}
             return
         }
-        activeSession = session
+        activeSessions[request.runId] = session
+        // 主任务选取规则：
+        // - 当前没有主任务 → 这个新任务接管浮层
+        // - 已有主任务在跑 → 新任务**安静在后台跑**，不抢浮层、不弹胶囊
+        //   （否则用户在 A 对话盯着胶囊，B 对话一开就把 A 的状态顶掉了）
+        val becamePrimary = primaryRunId == null
+        if (becamePrimary) primaryRunId = request.runId
         lastCompletedRunContext = null
         runCatching {
             startService(Intent(this, AgentRuntimeService::class.java).setAction(ACTION_KEEP_ALIVE))
@@ -395,9 +426,14 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
             }
         }
         mainHandler.removeCallbacksAndMessages(hideToken)
-        state.value = AgentOverlayState.Initial
-        capsuleExpanded.value = false
-        setCapsuleWindowHeight(CAPSULE_COLLAPSED_HEIGHT_DP)
+        // 非主任务不碰浮层：它安静在后台跑，只把自己的事件推给 UI 进程。
+        // 这里整段都是「重置胶囊/进初始态/准备结果卡」的前台动作，
+        // 让后台任务执行会把主任务正在展示的状态顶掉。
+        if (becamePrimary) {
+            state.value = AgentOverlayState.Initial
+            capsuleExpanded.value = false
+            setCapsuleWindowHeight(CAPSULE_COLLAPSED_HEIGHT_DP)
+        }
         hasExecutedForegroundTool = false
         resultConversationId = request.handoff
             ?.takeIf { it.source == AgentRuntimeWire.AGENT_UI_HANDOFF_SOURCE }
@@ -411,13 +447,17 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                     ?.takeIf(String::isNotBlank)
                     ?.let { key -> handoff.source to key }
             }
-        synchronized(supplementsLock) {
-            activeSupplements.clear()
-            nextSupplementIndex = 1
-            if (request.handoff?.source == AgentRuntimeWire.AGENT_UI_HANDOFF_SOURCE) {
-                val payload = AgentUiHandoffPayload.from(request.handoff.payload)
-                activeSupplements += payload.supplements
-                nextSupplementIndex = payload.lastSupplementIndex + 1
+        // 补充指令（steering）队列也按 run 隔离：只有主任务用得到胶囊输入。
+        // 非主任务不清空，避免把主任务已排队的补充指令抹掉。
+        if (becamePrimary) {
+            synchronized(supplementsLock) {
+                activeSupplements.clear()
+                nextSupplementIndex = 1
+                if (request.handoff?.source == AgentRuntimeWire.AGENT_UI_HANDOFF_SOURCE) {
+                    val payload = AgentUiHandoffPayload.from(request.handoff.payload)
+                    activeSupplements += payload.supplements
+                    nextSupplementIndex = payload.lastSupplementIndex + 1
+                }
             }
         }
 
@@ -444,7 +484,21 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
             },
             persistArtifacts = ::persistRunArtifacts,
         ).execute(session, request)
-        if (!outcome.shouldUpdateHost) return
+        // 并发改造后必须无条件摘除自己：并发场景下 outcome.shouldUpdateHost 可能为 false
+        // （例如后台任务被跳过），若跟着下面那行一起 return，这个 session 会永远留在
+        // activeSessions 里 —— 既泄漏，又让「还有任务在跑」的判断永远为真。
+        // postTerminalOverlay 内部也会 remove，但它是幂等的（先判身份再删）。
+        if (!outcome.shouldUpdateHost) {
+            mainHandler.post {
+                if (activeSessions[session.runId] === session) {
+                    activeSessions.remove(session.runId)
+                    if (primaryRunId == session.runId) {
+                        primaryRunId = activeSessions.keys.firstOrNull()
+                    }
+                }
+            }
+            return
+        }
         postTerminalOverlay(
             session = session,
             result = outcome.result,
@@ -465,7 +519,8 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         event: AgentEvent,
         entrySurfaceGuard: EntrySurfaceGuard?,
     ) {
-        if (activeSession !== session) return
+        // 只接受仍在册的 run 的事件；已移除的（跑完/取消）直接丢弃。
+        if (activeSessions[session.runId] !== session) return
         val revealsForegroundOperation = AgentOverlayVisibilityPolicy.shouldRevealFor(event)
         val requiresEntrySurfaceDismissal =
             AgentOverlayVisibilityPolicy.shouldDismissEntrySurfaceFor(event)
@@ -475,7 +530,12 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
             true
         }
         mainHandler.post {
-            if (activeSession !== session) return@post
+            if (activeSessions[session.runId] !== session) return@post
+            // **关键**：只有主任务才更新浮层状态。
+            // 后台任务（用户在另一条对话里跑的那个）的事件仍然会经 eventSink
+            // 推送到 UI 进程，去更新它自己的对话气泡，但绝不能碰共享的 overlay，
+            // 否则两个任务的事件会互相涂抹状态（A 的进度被 B 顶掉，反之亦然）。
+            if (primaryRunId != session.runId) return@post
             if (
                 AgentOverlayVisibilityPolicy.shouldRecordForegroundExecution(
                     event,
@@ -526,9 +586,19 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         completedContext: CompletedRunContext? = null,
     ) {
         mainHandler.post {
-            if (activeSession !== session) return@post
+            if (activeSessions[session.runId] !== session) return@post
+            // 先把自己从在册表里摘掉，再决定浮层归属。
+            activeSessions.remove(session.runId)
+            val wasPrimary = primaryRunId == session.runId
+            if (wasPrimary) {
+                // 主任务退出：把浮层让给下一个还在跑的任务（如果有），
+                // 否则清空主任务标记，浮层回到空闲。
+                primaryRunId = activeSessions.keys.firstOrNull()
+            }
+            // 后台任务结束不进终态浮层，也不改主任务状态；
+            // 它的结果已经通过 resultSink 投递给 UI 进程，由那边的对话负责展示。
+            if (!wasPrimary) return@post
             lastCompletedRunContext = completedContext
-            activeSession = null
             runCatching {
                 if (result.ok) {
                     enterFinalState(
@@ -658,7 +728,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
     private fun sendActiveRun(replyTo: Messenger?) {
         runCatching {
             val msg = Message.obtain(null, AgentRuntimeWire.MSG_QUERY_ACTIVE_RUN_RESPONSE)
-            msg.data = AgentRuntimeWire.ackBundle(activeSession?.runId.orEmpty())
+            msg.data = AgentRuntimeWire.ackBundle(primaryRunId.orEmpty())
             replyTo?.send(msg)
         }.onFailure { throwable ->
             AndroidAgentLogger.warnThrottled("runtime_active_run_delivery_failed") {
@@ -668,7 +738,8 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
     }
 
     private fun attachRun(runId: String, replyTo: Messenger?) {
-        val session = activeSession
+        // 按 runId 精确取：并发后同时可能有多个 run，不能再用「那唯一的一个」。
+        val session = activeSessions[runId]
         val attached = replyTo != null &&
             runId.isNotBlank() &&
             session?.runId == runId &&
@@ -747,7 +818,9 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
             replyTo,
             AgentRuntimeWire.RunResult(runId = "", ok = false, content = "", error = message),
         )
-        if (activeSession != null) return
+        // 并发后不能用「有没有在跑的任务」来决定是否进失败浮层：
+        // 只要还有任务在跑，就不该把浮层切到失败态（那是别人的界面）。
+        if (activeSessions.isNotEmpty()) return
         enterFinalState(
             AgentOverlayState(
                 phase = AgentOverlayPhase.FAILED,
@@ -758,7 +831,8 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
     }
 
     private fun requestStop() {
-        val session = activeSession
+        // 浮层上的停止按钮只作用于主任务。
+        val session = primarySession()
         if (session == null) {
             dismissAndStop()
             return
@@ -784,19 +858,21 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
             )
             return
         }
-        val session = activeSession ?: return
-        if (runId != session.runId) {
-            AndroidAgentLogger.debug { "Agent runtime ignored stale cancel request" }
-            return
-        }
+        // 按 runId 找目标任务：并发后不能只认「那个唯一的」。
+        // UI 传来的 runId 可能属于任意一条对话，不一定当前是主任务。
+        val session = activeSessions[runId] ?: return
         if (!session.isTerminal) {
             session.controller.cancel()
-            state.value = state.value.copy(status = AgentOverlayStatus.Stopping)
+            // 只有取消的是主任务时才改浮层状态，取消后台任务不该动别人的界面。
+            if (primaryRunId == runId) {
+                state.value = state.value.copy(status = AgentOverlayStatus.Stopping)
+            }
         }
     }
 
     private fun requestPause() {
-        activeSession?.controller?.pause()
+        // 暂停/恢复是浮层上的按钮，只作用于主任务。
+        primarySession()?.controller?.pause()
         state.value = state.value.copy(
             phase = AgentOverlayPhase.PAUSED,
             status = AgentOverlayStatus.Paused,
@@ -804,7 +880,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
     }
 
     private fun requestResume() {
-        activeSession?.controller?.resume()
+        primarySession()?.controller?.resume()
         state.value = state.value.copy(
             phase = AgentOverlayPhase.RUNNING,
             status = AgentOverlayStatus.Continuing,
@@ -815,7 +891,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         val supplementText = text.trim()
         if (supplementText.isBlank()) return
         setCapsuleInputMode(focusable = false)
-        activeSession?.let { session ->
+        primarySession()?.let { session ->
             val event = session.steer(supplementText) {
                 recordSupplementEvent(supplementText)
             }

@@ -96,7 +96,24 @@ internal class AgentAppState(
     private val runMessageProjector = AgentRunMessageProjector()
     private val runEventCoalescer = AgentRunEventCoalescer()
     private val runEventFlushJobs = mutableMapOf<String, Job>()
-    private var currentRunId: String? = null
+    /**
+     * 多并发改造（第 1 批）：所有本地观察中的 runId。
+     *
+     * 改造前是单个 `currentRunId`，语义混着两件事：
+     * ① 「现在有没有 run 在跑」 ② 「最近启动的那个是谁」
+     * 并发后必须拆开：
+     * - 判断「有没有在跑」→ 用 [hasActiveRun]（集合非空）
+     * - 判断「这个 run 是不是我自己发起的」→ 用 [observedRunIds] 是否包含
+     * - 仍需要「最近启动的那个」的地方（如恢复编排的单 run 假设）→ [latestRunId]
+     */
+    private val observedRunIds = mutableSetOf<String>()
+
+    /** 最近一次发起/接管的 runId；没有则为 null。用于仍按单 run 处理的恢复路径。 */
+    private var latestRunId: String? = null
+
+    /** 是否有任意一条对话的 run 仍在本地观察中。 */
+    private val hasActiveRun: Boolean
+        get() = observedRunIds.isNotEmpty()
     private var currentRunJob: Job? = null
     private val persistenceLock = Any()
     private var persistenceJob: Job? = null
@@ -221,7 +238,7 @@ internal class AgentAppState(
 
     suspend fun importBackup(input: InputStream): EtaBackupSummary {
         val locallyBusy = withContext(Dispatchers.Main.immediate) {
-            currentRunId != null || conversationsById.values.any { it.isStreaming }
+            hasActiveRun || conversationsById.values.any { it.isStreaming }
         }
         if (locallyBusy) {
             throw IllegalStateException("请先停止正在运行的 Agent 任务")
@@ -325,7 +342,7 @@ internal class AgentAppState(
         val activeStateKnown = activeRunQuery is AgentRuntimeClient.ActiveRunQuery.Known
         val terminalStateKnown = terminalRaceQuery is AgentRuntimeClient.CompletedRunsQuery.Known
         val activeRunId = (activeRunQuery as? AgentRuntimeClient.ActiveRunQuery.Known)?.runId
-        val locallyObservedRunId = withContext(Dispatchers.Main) { currentRunId }
+        val locallyObservedRunId = withContext(Dispatchers.Main) { latestRunId }
         val plan = AgentRunRecoveryCoordinator.plan(
             checkpoints = checkpoints,
             completedRuns = completedRuns,
@@ -338,7 +355,7 @@ internal class AgentAppState(
             val observed = checkpoints.mapTo(mutableSetOf()) { it.runId }.apply {
                 addAll(completedRuns.map { it.result.runId })
                 activeRunId?.let(::add)
-                currentRunId?.let(::add)
+                latestRunId?.let(::add)
             }
             conversationsById.flatMap { (id, state) ->
                 state.roleplayMessages.pendingRewrites.keys.filterNot { it in observed }.map { id to it }
@@ -485,10 +502,11 @@ internal class AgentAppState(
             .from(checkpoint.handoff.payload)
             .conversationId
         val existing = conversationsById[conversationId] ?: return
-        if (currentRunId != null || AgentRuntimeHistoryReducer.wasApplied(existing, runId)) return
+        if (hasActiveRun || AgentRuntimeHistoryReducer.wasApplied(existing, runId)) return
 
         runConversationIds[runId] = conversationId
-        currentRunId = runId
+        observedRunIds += runId
+        latestRunId = runId
         val restored = if (checkpoint.operation == AgentRuntimeWire.OP_REWRITE_REPLY) {
             RoleplayConversationReducer.restorePendingRewrite(existing, runId, checkpoint.rewriteTargetMessageId)
         } else existing
@@ -511,8 +529,9 @@ internal class AgentAppState(
                 }
                 AgentRuntimeClient.AttachOutcome.NotActive -> {
                     withContext(Dispatchers.Main) {
-                        if (currentRunId == runId) {
-                            currentRunId = null
+                        if (runId in observedRunIds) {
+                            observedRunIds -= runId
+                            if (latestRunId == runId) latestRunId = observedRunIds.lastOrNull()
                             currentRunJob = null
                             setConversationStreaming(runId, false)
                         }
@@ -520,8 +539,9 @@ internal class AgentAppState(
                     recoverRuntimeRuns()
                 }
                 AgentRuntimeClient.AttachOutcome.Unavailable -> withContext(Dispatchers.Main) {
-                    if (currentRunId == runId) {
-                        currentRunId = null
+                    if (runId in observedRunIds) {
+                        observedRunIds -= runId
+                        if (latestRunId == runId) latestRunId = observedRunIds.lastOrNull()
                         currentRunJob = null
                         setConversationStreaming(runId, false)
                         refreshConversationSummaries()
@@ -984,9 +1004,14 @@ internal class AgentAppState(
         // 取消旧 run 必然触发 applyRunResult → drainQueuedMessageAfterRun()。
         // 那条路径会把队首**另一条**消息也发出去，与这里的补发撞车、互相顶掉。
         // 所以在真的取消之前先占位，让本轮自动出队跳过。
-        val cancelling = currentRunId != null
+        // 只取消**本会话**的 run：并发后别的对话可能在跑，不能一起停掉。
+        // runConversationIds 是 runId → conversationId 的映射，用它反查。
+        val currentConversationRunId = selectedConversationId?.let { conversationId ->
+            runConversationIds.entries.firstOrNull { it.value == conversationId }?.key
+        }
+        val cancelling = currentConversationRunId != null
         if (cancelling) suppressAutoDrainOnce = true
-        currentRunId?.let { runId ->
+        currentConversationRunId?.let { runId ->
             if (stopRequestedRunIds.add(runId)) {
                 scope.launch(Dispatchers.IO) {
                     AgentRuntimeClient(appContext, AndroidAgentLogger).cancelRun(runId)
@@ -1182,7 +1207,7 @@ internal class AgentAppState(
 
     fun compactCurrentContext() {
         val conversationId = selectedConversationId ?: return
-        if (currentRunId != null || !homeState.canCompactContext || modelPickerState.isChanging) return
+        if (hasActiveRun || !homeState.canCompactContext || modelPickerState.isChanging) return
         launchConversationRun(
             conversationId = conversationId,
             runId = java.util.UUID.randomUUID().toString(),
@@ -1206,7 +1231,8 @@ internal class AgentAppState(
         rewriteTargetMessageId: String? = null,
     ) {
         runConversationIds[runId] = conversationId
-        currentRunId = runId
+        observedRunIds += runId
+        latestRunId = runId
         // 发送即绑定：会话记住本轮实际使用的模型，回落到默认模型时也随之更新。
         val runModelId = state.effectiveModelId
 
@@ -1344,7 +1370,7 @@ internal class AgentAppState(
             val leaseId = "prepare:$runId"
             val acquired = AgentExecutionService.acquire(appContext, leaseId) {
                 scope.launch(Dispatchers.Main.immediate) {
-                    if (currentRunId == runId) stopCurrentRun()
+                    if (runId in observedRunIds) stopRun(runId)
                 }
             }
             if (!acquired) {
@@ -1564,8 +1590,21 @@ internal class AgentAppState(
      */
     private var suppressAutoDrainOnce = false
 
+    /**
+     * 停止**当前会话**的 run。
+     *
+     * 并发后不能停「最近启动的那个」——那是另一条对话的任务。
+     * 先按 selectedConversationId 反查 runId，查不到再退回 latestRunId（兼容旧行为）。
+     */
     fun stopCurrentRun() {
-        val runId = currentRunId ?: return
+        val runId = selectedConversationId?.let { conversationId ->
+            runConversationIds.entries.firstOrNull { it.value == conversationId }?.key
+        } ?: latestRunId ?: return
+        stopRun(runId)
+    }
+
+    /** 停止指定 run。停止按钮与租约回收都走这里，确保只动目标任务。 */
+    private fun stopRun(runId: String) {
         if (!stopRequestedRunIds.add(runId)) return
         scope.launch(Dispatchers.IO) {
             AgentRuntimeClient(appContext, AndroidAgentLogger).cancelRun(runId)
@@ -1657,8 +1696,9 @@ internal class AgentAppState(
         flushPendingRunDelta(runId)
         val rewriting = result.operation == AgentRuntimeWire.OP_REWRITE_REPLY || isReplyRewrite(runId)
         stopRequestedRunIds.remove(runId)
-        if (runId == currentRunId) {
-            currentRunId = null
+        if (runId in observedRunIds) {
+            observedRunIds -= runId
+            if (latestRunId == runId) latestRunId = observedRunIds.lastOrNull()
             currentRunJob = null
         }
         if (rewriting) {
