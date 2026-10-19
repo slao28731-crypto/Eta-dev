@@ -123,7 +123,8 @@ internal object AgentPromptBuilder {
                     "未安装时提示用户在设置中安装；只改 smali 时走 baksmali/smali 重组 dex 再用 apksigner 签名，" +
                     "不要用 apktool build（Debian 的 aapt2 2.19 配不上 apktool 3.x）。" +
                     "运行时 Hook、脱壳、内存读写需要 Frida，由 App 内置安装（设置 → 终端 → Linux 环境 → Frida），" +
-                    "server 用 root 起在私有目录并监听 127.0.0.1:8899（不是 27042），frida 与 server 同为 17.24.2，" +
+                    "server 以 root 身份跑在 /data/local/tmp/eta-frida 并监听 127.0.0.1:8899（不是 27042），" +
+                    "frida 与 server 同为 17.24.2，" +
                     "frida-tools 是独立的 14.11.0 版本线；未安装时让用户在设置里点安装，不要自行下载或 adb push。" +
                     "读取图片内容调用 read_image；同一轮最多读取一张，观察返回内容后再读下一张。" +
                     executionContext?.let { "\n" + it.description(rootAvailable) }.orEmpty(),

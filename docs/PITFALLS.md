@@ -445,6 +445,54 @@ apktool d → baksmali d → 改 smali → smali a → zip 替换 dex → apksig
 
 ---
 
+## P100 · frida-server 跑在 App 私有目录（0700）里，attach 任何进程都会 `bootstrapper crashed with signal 11`
+
+**现象**：`frida-ps -H 127.0.0.1:8899` 能正常列出全部进程（RPC 通道是通的），但所有 attach / spawn 全失败：
+
+```
+attach 后台 App     → unexpectedly timed out while waiting for stop
+attach 前台 App     → 同样超时
+attach MT管理器     → the connection is closed
+spawn  App          → connection is closed
+attach busybox sleep → bootstrapper crashed with signal 11   ← 决定性证据
+```
+
+**为什么这条证据是决定性的**：`busybox sleep` 是 root 启动、极简、无任何反调试的进程。连它都 signal 11，说明崩溃点跟目标进程无关，**在注入器本身**。所以「frida 17.x 与 Android 16 兼容性」「目标 App 反调试」「进程被冻结」这些方向全都是错的。
+
+**逐一排除过、都不是原因**：版本错配（server 与 CLI 都是 17.24.2）、SELinux（清空 dmesg 后无 `avc: denied`）、进程冻结（`cgroup.freeze=0`）、server 权限（uid 0 / `CapEff=000001ffffffffff` / `Seccomp=0`）、server 实例坏了（另起 8898 带 `-v` 结果相同）。
+
+**根因**：server 二进制放在 `context.filesDir/frida/etad`，而 `filesDir` 是 `drwx------`（0700、属主 App uid）。注入后有环节要以目标进程身份沿 server 侧路径取资源，0700 下拿不到 → 段错误。
+
+**变量隔离法（唯一可信的验证方式）**：同一份 84,805,800 字节的 etad，只改位置不改别的：
+
+| 位置 | 权限 | attach 结果 |
+|---|---|---|
+| `/data/data/io.github.mangi.eta/files/frida/etad` | 0700 `u0_a456` | ❌ signal 11 |
+| `/data/local/tmp/eta-frida/etad` | 755 `root` | ✅ `attached: pid=18385` / `module_count: 13` |
+
+**解法**：`filesDir` 只作下载解压的落地位置，起 server 前 `cp` 到 `/data/local/tmp/eta-frida/` 再 `chmod 755`，然后用那份跑。`/data/local/tmp` 本身是 `root:shell 0771`，App 身份写不进去，但 root shell 可以，所以搬运必须在 root 身份下做。
+
+**教训**：**「连接层通」和「注入层通」是两件事，前者通不能推出后者没问题。** 反过来，注入失败时先找一个最无保护的 root 进程试一次——它有没有崩，直接决定该往哪个方向查。另外：**任何需要被其他进程读取的运行时二进制，都不能放在 App 私有目录里。**
+
+---
+
+## P101 · 清理旧进程的 shell 脚本会把自己 kill 掉（`contains("etad")` 自杀）
+
+**现象**：写一条扫 `/proc/*/cmdline` 找 `etad` 并 `kill -9` 的清理命令，执行后 `InstallerShellRunner` 直接中断、拿不到任何输出。
+
+**根因**：这条 shell 自己的 cmdline 里就包含 `etad` 这个字符串（命令文本本身）。按 `contains` 匹配会把执行它的 shell 一起选中，`kill -9` 打到自己身上。
+
+**解法**：只比 cmdline 的**第一个 token**，且要求它以 `/etad` 结尾：
+
+```sh
+n=$(tr '\000' ' ' < $d/cmdline); a=${n%% *}
+case "$a" in */etad|etad|./etad) kill -9 ${d#/proc/};; esac
+```
+
+**教训**：**凡是「按命令行内容找进程」的脚本，都要防住自己。** 用 argv[0] 而不是整条 cmdline，是唯一稳的写法。
+
+---
+
 ### P060 · `graphify extract` 扫不到文件
 **现象**：节点数远少于预期。
 **根因**：graphify 按 `.gitignore` 取文件。生成物、缓存目录如果写在 ignore 里就会被跳过。

@@ -978,8 +978,15 @@
   <string name="linux_checking">检查中</string>
   <string name="linux_repair">修复</string>
   <string name="linux_check">检查</string>
-  <string name="linux_apk_tools_ready">JADX、Apktool、smali 与 baksmali 已就绪；Apktool 暂不支持回编译</string>
-  <string name="linux_apk_tools_summary">安装正式版 OpenJDK 25，以及最新正式版 JADX、Apktool、smali 与 baksmali；需预留 768 MB</string>
+  <string name="linux_apk_tools_ready">JADX、Apktool、smali、baksmali、aapt2 与 apksigner 已就绪</string>
+  <string name="linux_apk_tools_summary">安装正式版 OpenJDK 25，以及最新正式版 JADX、Apktool、smali、baksmali、aapt2 与 apksigner 工具链；需预留 768 MB</string>
+  <string name="linux_frida_tools">Frida 动态插桩</string>
+  <string name="linux_frida_tools_summary">安装 Frida 17.24.2 server（以 root 身份在设备上运行）与 Linux 环境内的 frida-tools 命令行工具；需预留 400 MB。未安装时无法进行运行时 Hook、脱壳与内存改写。</string>
+  <string name="linux_frida_tools_ready">Frida server 与 CLI 已就绪，监听 127.0.0.1:8899</string>
+  <string name="linux_frida_stopped">Frida server 已停止</string>
+  <string name="linux_frida_start">启动</string>
+  <string name="linux_frida_stop">停止</string>
+  <string name="linux_frida_running">运行中</string>
   <string name="linux_python_tools">Python / uv 环境</string>
   <string name="linux_python_tools_summary">安装最新正式版 uv；Python 版本和项目环境由 uv 按需下载与管理</string>
   <string name="linux_python_tools_ready">uv 与最新正式版 Python 已就绪</string>

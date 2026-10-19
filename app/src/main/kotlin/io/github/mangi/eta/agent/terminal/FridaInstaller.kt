@@ -56,11 +56,32 @@ internal object FridaPaths {
     /** frida-tools 独立版本线，与 [VERSION] 无关。 */
     const val TOOLS_VERSION = "14.11.0"
 
-    /** 装到私有目录而不是 /data/local/tmp：卸载 App 时能一起清掉，也不污染共享临时目录。 */
+    /**
+     * **下载/解压的暂存目录**，不是 server 的运行位置。
+     *
+     * 私有目录是 `drwx------`（0700，属主 App uid）。同一份 etad 放这里运行时，
+     * attach 任何进程都会 `bootstrapper crashed with signal 11`（连 `busybox sleep`
+     * 这种最简 root 进程也一样崩），原因是注入后有一段要以目标进程身份沿 server
+     * 侧路径取资源，0700 下拿不到。搬到 [RUNTIME_DIR] 后同一命令 attach 成功。
+     *
+     * 所以这里只负责「落地」，起之前必须 stage 到 [RUNTIME_DIR]。
+     */
     fun serverDir(context: Context): File = File(context.filesDir, "frida")
     fun serverFile(context: Context): File = File(serverDir(context), "etad")
     fun logFile(context: Context): File = File(serverDir(context), "server.log")
     fun pidFile(context: Context): File = File(serverDir(context), "server.pid")
+
+    /**
+     * server 的真正运行目录：必须在 App 私有目录之外，且权限放开到 755。
+     *
+     * `/data/local/tmp` 在 Android 上恒为 `root:shell 0771`，App 身份不能直接写，
+     * 但 root shell 可以；子目录自建后 chmod 755，注入链路才读得到 server 侧资源。
+     * 目录名带 `eta-` 前缀，避免和别的工具的 tmp 目录撞名。
+     */
+    const val RUNTIME_DIR = "/data/local/tmp/eta-frida"
+
+    /** 运行位置的 server 路径。[RUNTIME_DIR] 下的 `etad`。 */
+    fun runtimeServerFile(): File = File(RUNTIME_DIR, "etad")
 
     /** 默认端口改成 8899，避开反调试最爱扫的 27042/27043。 */
     const val DEFAULT_PORT = 8899
@@ -146,6 +167,9 @@ internal class FridaInstaller(
                     return@withContext FridaInstallResult.RootRequired
                 }
                 val wasRunning = fridaServerRunning(context)
+                // 端口通但按 runtime 路径扫不到进程 → 那是旧版本或手工起的 server。
+                // 它照样会 signal 11，不能当成「已在跑」直接跳过 STARTING。
+                val staleForeign = wasRunning && detectServerPid() == null
 
                 coroutineContext.ensureActive()
                 onProgress(FridaInstallProgress(FridaInstallStage.INSTALLING_CLI))
@@ -155,7 +179,8 @@ internal class FridaInstaller(
 
                 coroutineContext.ensureActive()
                 onProgress(FridaInstallProgress(FridaInstallStage.STARTING))
-                if (!wasRunning && !startServer()) {
+                if (staleForeign) purgeStaleServer()
+                if ((!wasRunning || staleForeign) && !startServer()) {
                     return@withContext FridaInstallResult.Failed(FridaInstallStage.STARTING)
                 }
 
@@ -166,7 +191,7 @@ internal class FridaInstaller(
                 }
 
                 onProgress(FridaInstallProgress(FridaInstallStage.COMPLETE))
-                if (wasRunning) FridaInstallResult.AlreadyReady else FridaInstallResult.Installed
+                if (wasRunning && !staleForeign) FridaInstallResult.AlreadyReady else FridaInstallResult.Installed
             }
         } finally {
             installMutex.unlock()
@@ -367,7 +392,7 @@ internal class FridaInstaller(
      * 输出格式：`PID=<pid>`，找不到则输出 `PID=`。
      */
     private suspend fun detectServerPid(): Int? {
-        val serverPath = FridaPaths.serverFile(context).absolutePath
+        val serverPath = FridaPaths.runtimeServerFile().absolutePath
         val quoted = shellQuote(serverPath)
         // cmdline 是以 NUL 分隔的，直接读前缀会带上 \0 匹配不上；先用 tr 转空格再 case 匹配。
         // tr 不保证在 root shell 的 PATH 里，先探一遍再退回绝对路径。
@@ -394,20 +419,136 @@ internal class FridaInstaller(
     }
 
     /**
+     * 把 server 二进制从 App 私有目录 stage 到 [FridaPaths.RUNTIME_DIR]。
+     *
+     * **这一步是 attach 能不能成的分水岭**：server 直接从 `filesDir`（0700）运行时，
+     * 注入任何进程都会在 bootstrapper 里 `signal 11`，连 `busybox sleep` 都不行。
+     * 同一份二进制搬到 `/data/local/tmp/eta-frida/`（755）后 attach 立刻成功。
+     *
+     * 为什么每次都复制而不是只搬一次：App 升级/清缓存后私有目录里的文件可能被换成
+     * 新版本，runtime 侧还留着旧的，版本错配会退化成 "unable to find process"。
+     * 84MB 复制在本机是亚秒级，比排错便宜。
+     *
+     * 为什么只在长度不一致时才复制：省掉每次 Start 都写 84MB 的 IO，
+     * 又不牺牲正确性（同一个版本同 sha256，长度必然一致）。
+     */
+    private suspend fun stageServer(): Boolean {
+        val source = FridaPaths.serverFile(context)
+        if (!source.isFile || source.length() <= 0L) return false
+        val sourcePath = source.absolutePath
+        val runtimePath = FridaPaths.runtimeServerFile().absolutePath
+        val expectedSize = source.length()
+
+        // 目标已就位且大小一致 → 只补权限，不重拷。
+        // 不用 `stat -c %s` 单打：老版本 toybox 可能不认 -c，退回 wc -c 更稳。
+        val probe = InstallerShellRunner.run(
+            command = "F=${shellQuote(runtimePath)}; " +
+                "if [ -f \"\$F\" ]; then " +
+                "S=\$(stat -c %s \"\$F\" 2>/dev/null); " +
+                "[ -n \"\$S\" ] || S=\$(wc -c < \"\$F\" 2>/dev/null); " +
+                "S=\$(echo \$S | tr -d ' '); echo RUNTIME_SIZE=\$S; " +
+                "else echo RUNTIME_SIZE=0; fi",
+            timeoutSeconds = 20,
+            environment = TerminalEnvironment.ANDROID,
+            identity = "root",
+        )
+        val runtimeSize = probe.output.lineSequence()
+            .firstOrNull { it.startsWith("RUNTIME_SIZE=") }
+            ?.removePrefix("RUNTIME_SIZE=")
+            ?.trim()
+            ?.toLongOrNull()
+            ?: 0L
+        if (probe.exitCode == 0 && runtimeSize == expectedSize) {
+            // 大小已对上，仅确保可执行位与目录权限正确（升级后权限可能被重置）。
+            InstallerShellRunner.run(
+                command = "chmod 755 ${shellQuote(FridaPaths.RUNTIME_DIR)} " +
+                    "${shellQuote(runtimePath)}; true",
+                timeoutSeconds = 20,
+                environment = TerminalEnvironment.ANDROID,
+                identity = "root",
+            )
+            return true
+        }
+
+        val result = InstallerShellRunner.run(
+            command = "mkdir -p ${shellQuote(FridaPaths.RUNTIME_DIR)} && " +
+                "cp -f ${shellQuote(sourcePath)} ${shellQuote(runtimePath)} && " +
+                "chmod 755 ${shellQuote(FridaPaths.RUNTIME_DIR)} ${shellQuote(runtimePath)} && " +
+                "echo STAGE_OK",
+            timeoutSeconds = 120,
+            environment = TerminalEnvironment.ANDROID,
+            identity = "root",
+        )
+        val ok = result.exitCode == 0 && result.output.contains("STAGE_OK")
+        AndroidAgentLogger.info(
+            "Frida action=stage_server outcome=${if (ok) "succeeded" else "failed"} " +
+                "exitCode=${result.exitCode} size=$expectedSize",
+        )
+        return ok
+    }
+
+    /**
+     * 清掉所有「不是从 [FridaPaths.RUNTIME_DIR] 起的」旧 server 进程。
+     *
+     * 升级路径上必须有这一步：老版本把 etad 跑在 `filesDir`（0700）里，
+     * 端口 8899 被它占着 —— 新代码按 runtime 路径扫 `/proc` 找不到它，
+     * 会误判「没在跑」然后去起第二个，端口冲突起不来；
+     * 就算起来了，那个旧 server 的 attach 仍然会 signal 11。
+     *
+     * 匹配方式是**只比 cmdline 的第一个 token 是否以 `/etad` 结尾**：
+     * 不能整体 contains("etad")，因为这条 shell 自己的 cmdline 里就带这个字符串，
+     * 会把自己 kill 掉（实测会直接中断 InstallerShellRunner）。
+     */
+    private suspend fun purgeStaleServer(): Boolean {
+        val result = InstallerShellRunner.run(
+            command = "T=; for c in tr /system/bin/tr /vendor/bin/tr; do " +
+                "if command -v \"\$c\" >/dev/null 2>&1 || [ -x \"\$c\" ]; then T=\"\$c\"; break; fi; " +
+                "done; if [ -z \"\$T\" ]; then echo PURGED=; exit 0; fi; " +
+                "P=; for d in /proc/[0-9]*; do " +
+                "c=\$d/cmdline; [ -r \"\$c\" ] || continue; " +
+                "n=\$(\"\$T\" '\\000' ' ' < \"\$c\" 2>/dev/null); " +
+                "a=\${n%% *}; " +
+                "case \"\$a\" in */etad|etad|./etad) " +
+                "kill -9 \${d#/proc/} 2>/dev/null; P=\"\$P \${d#/proc/}\";; esac; " +
+                "done; echo PURGED=\$P",
+            timeoutSeconds = 20,
+            environment = TerminalEnvironment.ANDROID,
+            identity = "root",
+        )
+        val purged = result.output.lineSequence()
+            .firstOrNull { it.startsWith("PURGED=") }
+            ?.removePrefix("PURGED=")
+            ?.trim()
+            .orEmpty()
+        if (purged.isNotEmpty()) {
+            AndroidAgentLogger.info("Frida action=purge_stale outcome=killed pids=$purged")
+            kotlinx.coroutines.delay(500)
+        }
+        return result.exitCode == 0
+    }
+
+    /**
      * 起 server。用 root 身份、加 setsid 脱离当前会话，
      * 这样即使启动它的 shell 退出，server 也不会被一起收掉。
+     *
+     * server 本体跑在 [FridaPaths.RUNTIME_DIR]，日志与 pid 文件仍留在 App 私有目录：
+     * 它们是 App 自己的东西，0700 不碍事，而且卸载时能一起清掉。
      */
     suspend fun startServer(): Boolean {
-        val server = FridaPaths.serverFile(context)
-        if (!server.isFile) return false
         if (detectServerPid() != null) return true
+        // 端口通、但按 runtime 路径扫不到进程 = 旧版本或手工起的 server 占着端口。
+        if (fridaPortOpen() && !purgeStaleServer()) return false
+        if (!stageServer()) return false
 
+        val server = FridaPaths.runtimeServerFile()
         val log = FridaPaths.logFile(context)
         val pidFile = FridaPaths.pidFile(context)
         val result = InstallerShellRunner.run(
             command = buildString {
-                append("mkdir -p ${shellQuote(server.parentFile!!.absolutePath)} && ")
+                append("mkdir -p ${shellQuote(server.parentFile!!.absolutePath)} ")
+                append("${shellQuote(log.parentFile!!.absolutePath)} && ")
                 append("rm -f ${shellQuote(pidFile.absolutePath)} ${shellQuote(log.absolutePath)} && ")
+                append("cd ${shellQuote(server.parentFile!!.absolutePath)} && ")
                 append("setsid ${shellQuote(server.absolutePath)} ")
                 append("-l 127.0.0.1:${FridaPaths.DEFAULT_PORT} ")
                 append(">${shellQuote(log.absolutePath)} 2>&1 < /dev/null & ")
@@ -443,8 +584,10 @@ internal class FridaInstaller(
         val pidFile = FridaPaths.pidFile(context)
         val pid = detectServerPid()
         if (pid == null) {
+            // 端口还通、但按 runtime 路径扫不到 → 老版本/手工起的 server，也要一起清掉。
+            if (fridaPortOpen()) purgeStaleServer()
             runCatching { pidFile.delete() }
-            return true
+            return !fridaPortOpen()
         }
         val result = InstallerShellRunner.run(
             command = "kill $pid 2>/dev/null; sleep 1; kill -9 $pid 2>/dev/null; " +

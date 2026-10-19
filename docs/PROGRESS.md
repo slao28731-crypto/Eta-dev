@@ -56,7 +56,10 @@
 
 ## 进行中（交接给下一个 Agent）
 
-- [ ] **2026-10-19** 第七轮 Frida 内置（**代码已定稿，待 CI 编译 + 真机验收**）：用户要求 Frida 随 APK 分发，不要手工装本机。已写 `agent/terminal/FridaInstaller.kt` + `LinuxEnvironmentScreen.kt` 三态按钮 + `strings.xml` 8 条文案 + `re-mobile/SKILL.md` 第 4 步重写 + `AgentPromptBuilder` Frida 提示。本轮把四个架构的 sha256/size 全部补齐、修了三处会在真机上直接失效的缺陷（见下）。**待办：push 走 CI 编译 → 按报错修 → 真机验收**。详见 `docs/STATE.md` 的「第七轮」段
+- [x] **2026-10-19** 第七轮第二轮（**真机故障修复**）：真机实测 RPC 通但 attach 全部失败，`busybox sleep` 也报 `bootstrapper crashed with signal 11`。排除版本错配/SELinux/进程冻结/server 权限后，把变量隔离到**唯一一个：etad 放在哪个目录**。手工把同一份 84,805,800 字节的 etad 从 `filesDir`（0700）复制到 `/data/local/tmp/eta-frida/`（755）再起 server，Agent 在 App 内 attach 成功：`attached: pid=18385` / `module_count: 13` / `first_module: toybox` / `exit=0`。
+  - 代码改动：`FridaPaths` 新增 `RUNTIME_DIR` + `runtimeServerFile()`；新增 `stageServer()`（起之前复制 + chmod 755，大小一致时只补权限）；`startServer()` / `detectServerPid()` 改用 runtime 路径并先 `cd`；新增 `purgeStaleServer()` 清掉老版本跑在 filesDir 的残留（**只比 cmdline 第一个 token，整体 contains 会自杀**）；`ensureRunning()` 加 `staleForeign` 判定；`stopServer()` 也能清野生进程
+  - 顺带修：中文 `values-b+zh+Hans/strings.xml` 补 7 条 `linux_frida_*` 并同步 `linux_apk_tools_ready/summary`（上一轮只改了英文）；`AgentPromptBuilder` 与 `re-mobile/SKILL.md` 的路径说明全部改成 runtime 目录
+  - **未验证**：编译（走 CI）、`stageServer()` 端到端、`purgeStaleServer()` 真机行为
 - [x] **2026-10-19** 清掉上一轮误装的本机残留：`kill -9 28082`（SIGTERM 被 ksu 域忽略）、`rm -f /data/local/tmp/.eta/etad /data/local/tmp/.eta/d.log && rmdir /data/local/tmp/.eta`。**84,805,800 字节**，端口 8899 已释放（原来监听 `0.0.0.0:8899`，不清掉新代码的 `startServer()` 必然端口冲突，`frida-ps` 也会连到旧进程上给出假阳性）
 
 ## 进行中

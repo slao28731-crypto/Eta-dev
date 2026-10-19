@@ -14,7 +14,7 @@
 | 交接文档 | ✅ AGENTS.md + docs 六件套 + 3 条 ADR |
 | **二改功能开发** | ✅ **已验收五轮**：抽屉/配色轮 + 顶栏图标轮 + MCP 自助管理轮 + MCP 额度修复轮 + 删除 demo 轮 |
 | **逆向 skill 内置** | ✅ 第六轮已验收：`re-mobile`（默认开）+ `re-pc`（默认关），33 个 reference 全部 ≤ 49,504 字 |
-| **Frida 内置** | 🟡 第七轮代码已定稿，**待 CI 编译 + 真机验收**。详见下方「第七轮」段 |
+| **Frida 内置** | 🟡 第七轮：根因已定位并修复（**server 不能跑在 0700 私有目录**），代码已改，待 CI 编译 + 真机复验。详见下方「第七轮」段 |
 
 ## 逆向 skill 内置（新增能力，待验收）
 
@@ -135,7 +135,9 @@ Agent 自己就能添加 MCP 服务器，不需要用户进设置页。6 个工�
 
 ## 下一步（最重要）
 
-**五轮二改已验收，第六轮（逆向 skill 内置）已验收，第七轮（Frida 内置）代码已定稿，等 CI 编译 + 真机验收。**
+**五轮二改已验收，第六轮（逆向 skill 内置）已验收。第七轮（Frida 内置）在真机复验时暴露 attach `signal 11`，根因已定位为「server 跑在 0700 私有目录」，代码已改为 stage 到 `/data/local/tmp/eta-frida/`，等 CI 编译 + 真机复验。**
+
+**下一轮接手第一件事**：把 `docs/STATE.md` 的「第七轮第二轮」段读完，按其中「剩下必须做的事」第 1 条推 CI，然后让用户点「停止」→「启动」复验。
 
 第五轮验收（删除 demo 目录）用户原话：「刚刚我去Github仓库看了一下，demo文件夹里面都是之前用的HTML预览图，请你删除这个文件夹和内容，以后预览图只在本地生成」。
 第六轮用户定调：「按照你推荐进行」= 530KB 全量切分 + A/C 工具组 + 解掉回编译限制。**已验收**。
@@ -180,29 +182,86 @@ Agent 自己就能添加 MCP 服务器，不需要用户进设置页。6 个工�
 | 本机已装组合 | 直接读 rootfs 的 site-packages | `frida 17.24.2` + `frida_tools 14.11.0` + `pip 26.2.1`，与代码锁定值一致 |
 | 残留清理 | `ps -A` / `ss -lntp` | 无 etad 进程、8899 已释放 |
 
+### 🔴 第七轮第二轮：真机报 signal 11 —— 根因已定位并修复（2026-10-19 晚）
+
+**症状（真机实测）**
+
+| 能力 | 结果 |
+|---|---|
+| RPC 连接 | ✅ 可用，`frida-ps -H 127.0.0.1:8899` 能列出全部进程 |
+| attach 后台 App（GitHub） | ❌ `unexpectedly timed out while waiting for stop` |
+| attach 前台 App（DeepSeek） | ❌ 同样超时 |
+| **attach root 同域进程（`busybox sleep`）** | ❌ **`bootstrapper crashed with signal 11`** |
+| attach MT管理器 | ❌ `the connection is closed` |
+| spawn App | ❌ `connection is closed` |
+
+**为什么排除「frida 17.x 与 Android 16 兼容性」**
+
+`busybox sleep` 是 root 启动、极简、无任何反调试的进程，连它都 signal 11 —— 崩溃点跟目标进程无关，在注入器本身。版本错配、SELinux、进程冻结、server 权限（uid 0 / `CapEff=000001ffffffffff` / `Seccomp=0`）、server 实例问题全部已逐项排除。
+
+**根因：server 二进制跑在 App 私有目录（`drwx------` 0700）里。**
+
+同一份 84,805,800 字节的 etad，唯一变量是放在哪：
+
+| 位置 | 权限 | attach 结果 |
+|---|---|---|
+| `/data/data/io.github.mangi.eta/files/frida/etad` | 0700 `u0_a456` | ❌ signal 11 |
+| `/data/local/tmp/eta-frida/etad` | 755 `root` | ✅ **成功** |
+
+搬到 755 后实测输出（Agent 在 App 内跑的）：
+
+```
+[*] attached: pid=18385
+[MSG] {'type': 'send', 'payload': {'pid': 18385, 'arch': 'arm64',
+       'platform': 'linux', 'module_count': 13, 'first_module': 'toybox'}}
+[*] done
+=== exit=0 ===
+```
+
+`Process.enumerateModules()` 返回 13 个模块，首个 `toybox`，native attach 与 JS 执行全部正常。
+
+**推断机理**：注入后 frida 有一段要以目标进程身份沿 server 侧路径取资源，0700 目录下拿不到，于是段错误。具体哪一步没抓到栈，但**变量已经被隔离到只剩路径**这一个。
+
+**本轮改动（第二轮）**
+
+| # | 改动 | 为什么 |
+|---|---|---|
+| 1 | `FridaPaths` 新增 `RUNTIME_DIR = "/data/local/tmp/eta-frida"` 与 `runtimeServerFile()` | 运行位置与下载落地位置分离 |
+| 2 | 新增 `stageServer()`：起 server 前把 etad 复制到 runtime 目录并 `chmod 755` | 大小一致时只补权限不重拷，省掉每次 Start 写 84MB |
+| 3 | `startServer()` 改用 `runtimeServerFile()`，并先 `cd` 到该目录再 setsid | 相对路径拿到的 argv[0] 也要可解析 |
+| 4 | `detectServerPid()` 按 runtime 路径匹配 | 否则扫不到自己起的进程 |
+| 5 | 新增 `purgeStaleServer()`：只比 cmdline **第一个 token** 是否以 `/etad` 结尾 | 老版本把 etad 跑在 filesDir，端口被它占着，新代码会误判「没在跑」；**不能整体 contains("etad")，这条 shell 自己的 cmdline 里就带它，会自杀** |
+| 6 | `ensureRunning()` 新增 `staleForeign` 判定：端口通但 runtime 路径扫不到 → 先清再起 | 升级路径必需，否则用户点 Start 永远停在旧 server 上 |
+| 7 | `stopServer()` 在扫不到 pid 但端口仍通时也调 `purgeStaleServer()` | Stop 要真能停住野生进程 |
+| 8 | 中文 `values-b+zh+Hans/strings.xml` 补 7 条 `linux_frida_*` | 之前只改了英文，中文用户看不到 Frida 那一项 |
+| 9 | 中文 `linux_apk_tools_ready/summary` 同步成 aapt2 + apksigner 版本 | 上一轮遗留的文案不一致 |
+| 10 | `AgentPromptBuilder` 与 `re-mobile/SKILL.md` 改成 runtime 路径 | 提示词还在教 agent 用 filesDir 路径手起 server |
+
 ### 仍未验证（别把没验证的说成能用）
 
 | 项 | 状态 |
 |---|---|
-| 整个改动的**编译** | ❌ 未跑。按 AGENTS.md 与用户要求，编译只走 CI |
-| App 内置流程端到端（点安装 → 装好 → 能连上） | ❌ 完全没跑过，需要真机 |
-| `startServer()` 用 root + setsid 起在 `filesDir` | ❌ 未验证。上次是手工推到 `/data/local/tmp` 起的，没走 App 代码 |
-| `frida-ps -H 127.0.0.1:8899` 真能连上 | ❌ 未验证。上一轮就是卡在这里（shell 返回空），本轮换了命令写法但仍需实测 |
+| 本轮改动的**编译** | ❌ 未跑。编译只走 CI |
+| `stageServer()` 这条新链路端到端 | ❌ 未跑过。搬文件的动作是我手工在 root shell 里做的，不是 App 代码 |
+| `purgeStaleServer()` 的匹配逻辑 | ❌ 未在真机跑过。写法参照已被验证的 `detectServerPid()`，但自杀风险只在纸面分析过 |
+| 用户点「停止」→「启动」后是否落到 runtime 目录 | ❌ 需真机确认 |
 
 ### 剩下必须做的事（按顺序）
 
 ```
 □ 1. git add -A && git commit && git push origin clean:main
-       commit message 建议：feat(frida): 内置 frida-server 与 frida-tools 安装链路
+       commit message 建议：fix(frida): server 迁到 /data/local/tmp 修复 attach signal 11
 □ 2. 看 CI 结果，按报错修（不要在本地跑 ./gradlew）
-□ 3. 真机验收：
-       设置 → 终端 → Linux 环境 → 可选工具 → Frida dynamic instrumentation
-       点「安装」→ 观察 6 个阶段是否走完
-       → 点「停止」→ 再点「启动」
-       → 在终端里 `frida-ps -H 127.0.0.1:8899` 确认有进程列表
-□ 4. 若 verify 仍失败，先看 logcat 里 `Frida action=verify` 的 output 字段（本轮已把输出打进日志）
+□ 3. 真机复验：
+       设置 → 终端 → Linux 环境 → Frida 动态插桩
+       点「停止」→ 再点「启动」（让新代码把 etad 搬到 runtime 目录）
+       → 在 App 里让 Agent attach 一个 App 进程，确认不再 signal 11
+       → 用 root shell 确认：ls -l /data/local/tmp/eta-frida/etad 应是 755
+□ 4. 若仍 signal 11，查 Android 15+ 的 16KB page size 对齐
 □ 5. 收工协议 8 项
 ```
+
+**清理提醒**：验证期间我在 `/data/local/tmp/eta-frida/` 手工起过一个 server（pid 8672 / 后可能变化），新代码的 `purgeStaleServer()` 会把它清掉；若还没跑到那一步而端口被占，手工 `kill -9` 即可。
 
 ### 一个必须记录的决策
 

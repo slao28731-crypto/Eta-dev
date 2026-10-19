@@ -165,7 +165,9 @@ lib.write("libgame_patched.so")
 
 **Frida 是 App 内置能力，让用户点按钮装，不要自己 `adb push`。**
 
-装在哪：`设置 → 终端 → Linux 环境 → 可选工具 → Frida dynamic instrumentation`，点一次「安装」就行。App 会自己完成：下载对应的 `frida-server-17.24.2-android-<abi>.xz` → SHA256 校验 → 解压到 App 私有目录 `filesDir/frida/etad` → 在 Debian 侧 pip 装 `frida==17.24.2` + `frida-tools==14.11.0` → 用 root 起 server → `frida-ps` 连通验证。装完之后同一个按钮变成「启动 / 停止」，**不做开机自启**，用完点停止，省电也少留痕迹。
+装在哪：`设置 → 终端 → Linux 环境 → Frida 动态插桩`，点一次「安装」就行。App 会自己完成：下载对应的 `frida-server-17.24.2-android-<abi>.xz` → SHA256 校验 → 解压到 App 私有目录 `filesDir/frida/etad` → **复制到 `/data/local/tmp/eta-frida/etad` 并 chmod 755** → 在 Debian 侧 pip 装 `frida==17.24.2` + `frida-tools==14.11.0` → 用 root 起 server → `frida-ps` 连通验证。装完之后同一个按钮变成「启动 / 停止」，**不做开机自启**，用完点停止，省电也少留痕迹。
+
+> **server 必须跑在 `/data/local/tmp/eta-frida/`，不能直接跑在 `filesDir`。** 私有目录是 `drwx------`（0700），etad 从那里启动时 attach 任何进程都会 `bootstrapper crashed with signal 11`（连 `busybox sleep` 这种最简 root 进程也一样）；同一份二进制搬到 755 的 `/data/local/tmp/eta-frida/` 后 attach 立刻正常。`filesDir/frida/etad` 只作为下载落地的原件保留，运行时用的是 runtime 那份。
 
 **动手前先探活**（不要假设已装）：
 
@@ -180,8 +182,9 @@ su -c 'ss -lntp | grep 8899'
 
 | 现象 | 结论 | 怎么做 |
 |---|---|---|
-| `frida-ps` 不存在 | CLI 没装 | 告诉用户去设置里点「Frida dynamic instrumentation」的安装按钮 |
-| CLI 在但 `8899` 没监听 | server 没起 | 让用户点「启动」，或在 Android 侧 `su -c '<filesDir>/frida/etad -l 127.0.0.1:8899 &'` |
+| `frida-ps` 不存在 | CLI 没装 | 告诉用户去设置里点「Frida 动态插桩」的安装按钮 |
+| CLI 在但 `8899` 没监听 | server 没起 | 让用户点「启动」，或在 Android 侧 `su -c '/data/local/tmp/eta-frida/etad -l 127.0.0.1:8899 &'` |
+| 8899 在监听但 attach 报 `signal 11` | server 跑在 0700 的私有目录里 | 让用户点「停止」再点「启动」，App 会自动重置到 `/data/local/tmp/eta-frida/` |
 | 8899 在监听但连不上 | 版本不匹配或端口被打断 | 查 `frida-ps --version` 是否 17.x；查 `ps -A \| grep etad` 是否有进程 |
 
 **版本铁律，别弄错**：
