@@ -123,8 +123,6 @@ internal fun AgentChatInputBar(
     onSubmit: (String) -> Unit,
     /** 运行中把草稿排进待发送队列（不打断当前 run）。 */
     onQueueSubmit: (String) -> Unit = {},
-    /** 当前待发送条数，仅用于文案提示。 */
-    queueCount: Int = 0,
     onStop: () -> Unit,
     onAttachImage: (String) -> Unit,
     onRemoveImage: (String) -> Unit,
@@ -426,6 +424,12 @@ internal fun AgentChatInputBar(
                                 animationSpec = tween(durationMillis = 160),
                                 label = "send_button_color",
                             )
+                            val iconTint = when {
+                                showQueueAction -> MiuixTheme.colorScheme.onPrimary
+                                showStopAction -> MiuixTheme.colorScheme.surface
+                                canSend -> MiuixTheme.colorScheme.onPrimary
+                                else -> MiuixTheme.colorScheme.onSurfaceVariantActions
+                            }
                             Box(
                                 modifier = Modifier
                                     .size(SendButtonVisualSize)
@@ -443,28 +447,23 @@ internal fun AgentChatInputBar(
                                             )
                                     },
                                     label = "send_stop_icon",
-                                ) { streaming ->
+                                ) { stopState ->
                                     Icon(
-                                        imageVector = if (streaming) {
+                                        imageVector = if (stopState) {
                                             Icons.Rounded.Stop
                                         } else {
                                             Icons.Rounded.ArrowUpward
                                         },
                                         contentDescription = when {
                                             showQueueAction -> stringResource(R.string.chat_queue_add)
-                                            streaming -> stringResource(R.string.chat_stop)
+                                            stopState -> stringResource(R.string.chat_stop)
                                             isEditingMessage && preserveFollowingMessages -> stringResource(R.string.chat_save_message)
                                             else -> stringResource(R.string.chat_send)
                                         },
                                         modifier = Modifier.size(
-                                            if (streaming) StopIconSize else SendIconSize
+                                            if (stopState) StopIconSize else SendIconSize
                                         ),
-                                        tint = when {
-                                            showQueueAction -> MiuixTheme.colorScheme.onPrimary
-                                            streaming -> MiuixTheme.colorScheme.surface
-                                            canSend -> MiuixTheme.colorScheme.onPrimary
-                                            else -> MiuixTheme.colorScheme.onSurfaceVariantActions
-                                        },
+                                        tint = iconTint,
                                     )
                                 }
                             }

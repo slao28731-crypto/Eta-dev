@@ -86,6 +86,50 @@ aapt 的双引号语义是「保留引号内的空白」，不是「免转义」
 `The aardwolf ... NetExec's` 里本来就有一对引号，整段被吃掉，
 注入事故后检查仍报 PASS。**别用「删双引号片段」的方式处理文本**。
 
+### P094 · 运行中插话：UI 层拦死，后端早就通了
+
+**现象**：agent 跑着的时候，主聊天页发不出第二条消息。输入框里的字能打，
+但按发送键只会变成「停止」；就算绕过按钮直接调 `sendCurrentMessage()`，
+也会在 `homeState.isStreaming` 那一行直接 `return`，**连提示都不给**。
+
+**容易误判的方向**：以为模型/后端不支持中途插话，要去改 `AgentLoop`。
+实际上 `AgentRunController.steer()` 早就写好了——`ArrayDeque` 排队，
+`AgentLoop` 每轮开头 `pollSteeringMessage()` 抽一条、assistant 自然结束后
+再 `pollSteeringOrSeal()` 抽最后一条，`UserSupplementReceived` 事件经
+Wire 序列化跨进程，UI 侧 `mergeSupplements()` 也会插气泡。**整条链一行没缺，
+只是从来没有任何地方调 `steer()`**（grep 全仓零调用）。
+
+**根因**：`AgentChatInputBar` 的按钮 `onClick = if (isStreaming) onStop else 发送`
+把两个动作压到同一个位置，加上 `sendCurrentMessage` 的 `isStreaming` 早退，
+等于在 UI 层把功能封印了。
+
+**三种可选实现（选错会返工）**：
+
+| 方案 | 行为 | 代价 |
+|---|---|---|
+| 队列（本轮采纳，对齐 Operit） | 不打断，run 结束后自动发队首 | 小，纯 UI 状态 |
+| 打断 + 重发 | 取消旧 run，当新消息发 | 中，要处理终态交叉 |
+| 打断 + 模型自判优先级 | 模型决定先做哪个 | 大，无现成实现 |
+
+**做法**：`queuedMessages` 挂在 `AgentChatUiState` 上（跟输入草稿一样按会话隔离），
+**不进 `AgentConversationPersistence.Content`、不动 Room**。理由见下。
+
+**两条必须记住的边界**：
+
+1. **「立即发送」会和自动出队撞车**。取消旧 run 必然触发
+   `applyRunResult → drainQueuedMessageAfterRun()`，那条路径会把队首**另一条**
+   也发出去。必须在 cancel 之前置 `suppressAutoDrainOnce`，让本轮自动出队跳过一次。
+2. **等待终态不能无上限**。`while (isStreaming) delay(...)` 一旦 cancel 没回落到
+   终态，这条消息就永久卡在协程里。加了 `QUEUE_DRAIN_MAX_WAIT_MS = 8s`。
+
+**为什么不写数据库**：`AgentConversationPersistence.Content` 是手写白名单，
+只存 `messages/history/journal/reasoningEffort/...`，**输入草稿本来就不入库**。
+队列跟着草稿走，杀进程丢失、切会话保留，代价是重打一句话，
+换来的是一行数据库和序列化格式都不用动。
+
+**防护**：附件不进队列（要过 `AgentRuntimeImageTransfer`，会和运行中摄取抢管道），
+所以 `hasTextDraft` 只算纯文字；带附件时按钮退回「停止」，不给入队入口。
+
 ### P089 · 三引号原始字符串里的 `$` 同样会被插值（同一个坑的第三个变体）
 
 **现象**：CI 报

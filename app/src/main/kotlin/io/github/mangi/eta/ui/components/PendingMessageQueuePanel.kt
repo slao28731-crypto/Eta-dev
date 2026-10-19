@@ -61,7 +61,6 @@ internal fun PendingMessageQueuePanel(
     // 没有排队消息时整个面板不占位，避免输入区上下抖动。
     if (messages.isEmpty()) return
 
-    val shape = RoundedCornerShape(16.dp)
     Column(
         modifier = modifier
             .fillMaxWidth()

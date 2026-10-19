@@ -60,6 +60,28 @@
   - 代码改动：`FridaPaths` 新增 `RUNTIME_DIR` + `runtimeServerFile()`；新增 `stageServer()`（起之前复制 + chmod 755，大小一致时只补权限）；`startServer()` / `detectServerPid()` 改用 runtime 路径并先 `cd`；新增 `purgeStaleServer()` 清掉老版本跑在 filesDir 的残留（**只比 cmdline 第一个 token，整体 contains 会自杀**）；`ensureRunning()` 加 `staleForeign` 判定；`stopServer()` 也能清野生进程
   - 顺带修：中文 `values-b+zh+Hans/strings.xml` 补 7 条 `linux_frida_*` 并同步 `linux_apk_tools_ready/summary`（上一轮只改了英文）；`AgentPromptBuilder` 与 `re-mobile/SKILL.md` 的路径说明全部改成 runtime 目录
   - **已验证**：编译（CI 通过）、`stageServer()` 端到端（点「停止」→「启动」后 attach 成功）、`purgeStaleServer()`（未自伤、未报错）
+- [x] **2026-10-19** 第十五轮：运行中可继续发消息（待发送队列，方案甲，对齐 Operit）
+  - **用户需求**：agent 跑着的时候也要能发下一条，现在是一次只能一条
+  - **关键发现（P094）**：后端 `AgentRunController.steer()` 早就写好了，`AgentLoop` 每轮开头会 poll、
+    `UserSupplementReceived` 事件经 Wire 跨进程、UI 侧 `mergeSupplements()` 会插气泡 ——
+    **整条链一字不缺，但全仓 grep 零调用**。真正拦死的是 UI：输入栏把发送/停止压在同一颗键上，
+    `sendCurrentMessage()` 又在 `homeState.isStreaming` 直接 return
+  - **用户三次决策**：① 先出 HTML 预览图再定按钮方案 → ② 选方案 C（输入框上方浮出条，**且要求在框外**）
+    → ③ 选「甲」= 照 Operit 的队列实现，不做打断+模型自判
+  - **先去读了 Operit v1.12.2（commit `dbf7191`）的真源码**：`PendingMessageQueueStore`（按会话存、
+    纯内存 StateFlow）+ `PendingMessageQueuePanel`（可折叠卡片，渲染在输入框**外面**）+ 三态按钮
+    `showQueueAction = isProcessing && hasDraftText` / `showCancelAction = isProcessing && !showQueueAction`。
+    **它的插话其实不打断**：默认进队列，要手动点队列项的发送图标才 `cancelMessage()` 再重发
+  - **实现**：`QueuedMessageUi` + `AgentChatUiState.queuedMessages/queueExpanded`（**纯内存，
+    不进 `AgentConversationPersistence.Content`，不动 Room version 22**）；新增
+    `PendingMessageQueuePanel` 渲染在输入框外面；`sendCurrentMessage` 运行中改走
+    `enqueueQueuedMessage`；`applyRunResult` 尾部接 `drainQueuedMessageAfterRun` 自动出队
+  - **修掉两个自己挖的坑**：① 「立即发送」取消旧 run 必然触发自动出队，会与补发撞车 →
+    加 `suppressAutoDrainOnce` 一次性让路；② `while (isStreaming) delay()` 无上限，cancel 没回落
+    就永久卡死 → 加 `QUEUE_DRAIN_MAX_WAIT_MS = 8s`
+  - **刻意缩小的范围**：附件不进队列（会和运行中 `AgentRuntimeImageTransfer` 抢管道）；
+    角色卡对话第一版不开放中途插话（要走 roleplay 投影）
+  - `git status` 干净，`static_check.py` 六项全过，`self_test_static_check.py` 三个事故注入仍能拦下
 - [x] **2026-10-19** 第十四轮：修渗透组两个安装失败（TMPDIR + 四处依赖互踩）（CI run #51 绿）✅ **真机验收通过**
   - **用户真机反馈**：CLOUD 组卡在 `scoutsuite+pacu` 一直转、AD 组报 netexec 失败
   - **根因 1（最隐蔽）**：`TMPDIR=/data/user/0/com.ai.assistance.operit/cache` 是 Android 侧路径，**chroot 内看不到**。rustc 报 `couldn't create a temp dir: No such file or directory (os error 2)`。→ 所有 pip 步骤加 `export TMPDIR=/tmp`

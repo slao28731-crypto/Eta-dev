@@ -1000,7 +1000,6 @@ private fun AgentChatBottomBar(
                 preserveFollowingMessages = messageEdit?.preserveFollowingMessages == true,
                 onSubmit = onSubmit,
                 onQueueSubmit = onQueueMessage,
-                queueCount = queuedMessages.size,
                 onReasoningEffortChange = onReasoningEffortChange,
                 onCompactContext = onCompactContext,
                 canCompactContext = canCompactContext,
