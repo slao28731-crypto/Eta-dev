@@ -361,10 +361,16 @@ private fun AgentChatScaffold(
                 onAttachFiles = onAttachFiles,
                 onAttachFolder = onAttachFolder,
                 onAttachFilePath = onAttachFilePath,
-                onRemoveFileReference = onRemoveFileReference,
-                onCancelMessageEdit = onCancelMessageEdit,
-            )
-        },
+onRemoveFileReference = onRemoveFileReference,
+                 onCancelMessageEdit = onCancelMessageEdit,
+                 queuedMessages = queuedMessages,
+                 queueExpanded = queueExpanded,
+                 onQueueExpandedChange = onQueueExpandedChange,
+                 onRemoveQueuedMessage = onRemoveQueuedMessage,
+                 onSendQueuedMessageNow = onSendQueuedMessageNow,
+                 onQueueMessage = onQueueMessage,
+             )
+         },
     ) { innerPadding ->
         val bottomPadding = innerPadding.calculateBottomPadding()
         if (!hasMessages) {
@@ -914,8 +920,15 @@ private fun AgentChatBottomBar(
     onAttachFilePath: (String) -> Unit,
     onRemoveFileReference: (String) -> Unit,
     onCancelMessageEdit: () -> Unit,
+    // 队列参数在这里也要收一份：底栏是独立函数，不在 AgentChatBody 作用域内，
+    // 不传进来就报 Unresolved reference（run #54~#58 全是这个）。
+    queuedMessages: List<QueuedMessageUi> = emptyList(),
+    queueExpanded: Boolean = true,
+    onQueueExpandedChange: (Boolean) -> Unit = {},
+    onRemoveQueuedMessage: (String) -> Unit = {},
+    onSendQueuedMessageNow: (String) -> Unit = {},
+    onQueueMessage: (String) -> Unit = {},
 ) {
-    // 底栏的模糊背板、渐隐、实底三层都必须与页面底色同源，否则深色下底栏会比聊天区更黑。
     val surfaceColor = appPageBackgroundColor()
     Column(
         modifier = Modifier
