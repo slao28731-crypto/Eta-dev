@@ -16,6 +16,8 @@
 | **逆向 skill 内置** | ✅ 第六轮已验收：`re-mobile`（默认开）+ `re-pc`（默认关），33 个 reference 全部 ≤ 49,504 字 |
 | **Frida 内置** | ✅ **第七轮已验收**：server 跑在 `/data/local/tmp/eta-frida`（755），attach 实测成功。详见下方「第七轮」段 |
 | **脱壳 dexdump** | ✅ **第八轮已改**：`frida-dexdump 2.0.1` 随 Frida 一起装；SKILL 删掉不存在的 ARM64 aapt2 路线、加 Root 前置判定。真机未验 |
+| **逆向分析工具组** | ✅ **第九轮已编译通过（run #35）**：z3/unicorn/apkid/objection/mitmproxy/radare2 一键装；angr 独立开关。真机未验 |
+| **外部 skill 导入** | ✅ 76+1 个单技能 ZIP 已生成到 `/sdcard/Download/eta-skills/zips/`，全部通过 Eta 安装器规则校验 |
 
 ## 逆向 skill 内置（新增能力，待验收）
 
@@ -136,7 +138,10 @@ Agent 自己就能添加 MCP 服务器，不需要用户进设置页。6 个工�
 
 ## 下一步（最重要）
 
-**八轮全部完成，当前无进行中任务。等用户发下一道指令。**
+**九轮全部完成，当前无进行中任务。等用户发下一道指令。**
+
+- 第九轮已编译通过（CI run #35，commit `fe369a4`），**待真机验证**：设置 → 终端 → Linux 环境 → 逆向分析工具组，点安装后确认 z3/unicorn/apkid/objection/mitmdump/r2 六个都能跑
+- 77 个 skill ZIP 在 `/sdcard/Download/eta-skills/zips/`，待用户在设置页逐个导入
 
 第五轮验收（删除 demo 目录）用户原话：「刚刚我去Github仓库看了一下，demo文件夹里面都是之前用的HTML预览图，请你删除这个文件夹和内容，以后预览图只在本地生成」。
 第六轮用户定调：「按照你推荐进行」= 530KB 全量切分 + A/C 工具组 + 解掉回编译限制。**已验收**。

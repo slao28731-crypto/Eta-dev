@@ -60,6 +60,13 @@
   - 代码改动：`FridaPaths` 新增 `RUNTIME_DIR` + `runtimeServerFile()`；新增 `stageServer()`（起之前复制 + chmod 755，大小一致时只补权限）；`startServer()` / `detectServerPid()` 改用 runtime 路径并先 `cd`；新增 `purgeStaleServer()` 清掉老版本跑在 filesDir 的残留（**只比 cmdline 第一个 token，整体 contains 会自杀**）；`ensureRunning()` 加 `staleForeign` 判定；`stopServer()` 也能清野生进程
   - 顺带修：中文 `values-b+zh+Hans/strings.xml` 补 7 条 `linux_frida_*` 并同步 `linux_apk_tools_ready/summary`（上一轮只改了英文）；`AgentPromptBuilder` 与 `re-mobile/SKILL.md` 的路径说明全部改成 runtime 目录
   - **已验证**：编译（CI 通过）、`stageServer()` 端到端（点「停止」→「启动」后 attach 成功）、`purgeStaleServer()`（未自伤、未报错）
+- [x] **2026-10-19** 第九轮：内置逆向分析工具组（用户给了 17 项待内置清单，逐条核实后只做能跑的）
+  - **查证推翻了 4 条**：① `radare2` GitHub Releases **没有 linux-arm64**（6.2.4 只有 Windows/iOS/macOS/x86_64）→ 改走 apt，Debian trixie 与 Alpine v3.24 community 都有 aarch64 包；② `dex2jar` **PyPI 上不存在**（`/pypi/dex2jar/json` 返回 404）→ 不做，jadx 已覆盖；③ Android NDK **Google 从不发 aarch64 Linux 版**（r30 只有 windows/darwin/linux-x86_64）→ 不做；④ gradle + SDK cmdline-tools 无 aarch64 官方版、>2GB → 不做。另外 blutter（要手机编 Dart 运行时）、KSU 内核模块（要内核头）也排除
+  - **新增 `RE_LAB` profile（约 400MB）**：z3-solver / unicorn / apkid / objection / mitmproxy / radare2。五条 pip 各自 `|| exit <code>`，最后逐个 `command -v` 与 `import` 探活，缺一个都不写 marker
+  - **新增 `ANGR` profile（约 900MB，默认不装）**：依赖树太大，做成用户按需点
+  - **配套**：`SKILL.md` 补 radare2 / apkid / z3 / unicorn 的实战用法与 mitmproxy 完整抓包流程（含 Android 7+ 系统证书必踩的坑）；`AgentPromptBuilder` 同步告知 Agent
+  - **CI 踩坑（P081）**：`val ALL = listOf(..., RE_LAB, ANGR)` 写在 RE_LAB/ANGR 声明之前 → Kotlin `object` 属性按声明顺序初始化，编译报 `Variable 'RE_LAB' must be initialized`。run #34 红，修到 run #35 绿
+  - **Skill 转换（另一件事）**：把用户给的 227 个 AoRly 技能按 Eta 规则转成 **77 个单技能 ZIP**（`/sdcard/Download/eta-skills/zips/`），全部通过重写的安装器规则校验；后续又从 `zhaoxuya520/reverse-skill` 补了 `radare2` 一个。**判断用了三版规则才干净**：v1 关键词打分把 7 份 idasql（IDA 插件）文档误判成手机端；v2 目录名硬排除解决；v3 把优先级改成「目录名 > 人工白名单 > 内容锚点」，避免误杀 `ai-reverse-workflow`
 - [x] **2026-10-19** 第七轮终验通过（用户原话「成功 + 13」）：用户装 CI 产物 → 点「停止」→「启动」→ Agent 在内置终端里 `attach` pid 15851，输出 `Connected to 127.0.0.1:8899` / `Attaching...` 无报错 / `Process.enumerateModules().length` → `13`。**attach 链路彻底通了，Frida 内置功能交付完成。** 全程无电脑、无 adb、无手工推文件，「别人装上也能用」达成
 - [x] **2026-10-19** 第八轮：补齐逆向工具链的四个缺口（用户只说「做」，按上一轮列出的 1→3 项执行）
   - **1. 装 `frida-dexdump 2.0.1`**：`re-mobile/SKILL.md` 第 5 步原来写「先试 frida-dexdump」，但工具根本没装——frida-tools 里没有这个子命令，脱壳第一步是空的。`FridaPaths` 加 `DEXDUMP_VERSION`，pip 命令追加该包，软链清单加 `frida-dexdump`。**关键：跳过 pip 的条件从「frida 版本对上」改成「frida 版本对上 **且** `import frida_dexdump` 成功」**，否则老用户升级后版本判断通过、永远补不上脱壳工具。装不上只 `echo FRIDA_DEXDUMP_MISSING` 不判死，避免整条 Frida 退回不可用

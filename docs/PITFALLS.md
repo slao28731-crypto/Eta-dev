@@ -6,6 +6,13 @@
 
 ## 构建 / 工具链
 
+### P081 · Kotlin `object` 里 `val ALL = listOf(A, B)` 写在 A/B 之前 → 编译失败
+**现象**：CI「构建 APK」步骤红，错误是 `Variable 'RE_LAB' must be initialized`。本地看不出来，因为本地不能编译。
+**根因**：Kotlin `object` 的属性按**声明顺序**初始化。`val ALL = listOf(..., RE_LAB, ANGR)` 如果写在 `RE_LAB` / `ANGR` 声明**之前**，读到的仍是未初始化字段。Kotlin 编译器会直接拒绝。
+**解法**：所有 `val XXX = SomeProfile(...)` 必须先声明，`val ALL = listOf(...)` 放在对象体最末尾。
+**教训**：这类顺序错误只能靠 CI 发现。已在 `ci/verify_re_lab_profiles.py` 第 4 项加绝对位置检查（比较 `index("val ALL = listOf(")` 与各 profile 声明的 `index`），本地就能拦。
+**注意**：最初那版检查只看「ALL 列表内部的相对顺序」，把 ALL 移到文件末尾后仍然报 PASS——等于失效。检查必须比**声明位置**，不能比列表元素顺序。
+
 ### P077 · `edit_file` 改长字符串拼接时，整段内容被删空只留一行乱入文字
 **现象**：改 `FridaInstaller.installCliCommand()`，看到的 diff 是「+1 -20」，替换结果只剩 `android` 一个字。**diff 里那一行看着像注释，肉眼读完全不会警觉**；只有把 Kotlin 反解成真实 shell 串才发现命令是空的。
 **根因**：`edit_file` 的 old 块匹配失败时的降级行为，把整块换成了模型最后输出的片段。
