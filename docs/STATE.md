@@ -13,7 +13,8 @@
 | 代码图谱 | ✅ Graphify 0.9.92，11899 节点 / 436 社区 |
 | 交接文档 | ✅ AGENTS.md + docs 六件套 + 3 条 ADR |
 | **二改功能开发** | ✅ **已验收五轮**：抽屉/配色轮 + 顶栏图标轮 + MCP 自助管理轮 + MCP 额度修复轮 + 删除 demo 轮 |
-| **逆向 skill 内置** | 🟡 已实现待真机验收：`re-mobile`（默认开）+ `re-pc`（默认关），33 个 reference 全部 ≤ 49,504 字 |
+| **逆向 skill 内置** | ✅ 第六轮已验收：`re-mobile`（默认开）+ `re-pc`（默认关），33 个 reference 全部 ≤ 49,504 字 |
+| **Frida 内置** | 🟡 第七轮代码已定稿，**待 CI 编译 + 真机验收**。详见下方「第七轮」段 |
 
 ## 逆向 skill 内置（新增能力，待验收）
 
@@ -134,10 +135,82 @@ Agent 自己就能添加 MCP 服务器，不需要用户进设置页。6 个工�
 
 ## 下一步（最重要）
 
-**五轮二改已验收，第六轮（逆向 skill 内置）已实现待真机验收。当前等用户装包验证。**
+**五轮二改已验收，第六轮（逆向 skill 内置）已验收，第七轮（Frida 内置）代码已定稿，等 CI 编译 + 真机验收。**
 
 第五轮验收（删除 demo 目录）用户原话：「刚刚我去Github仓库看了一下，demo文件夹里面都是之前用的HTML预览图，请你删除这个文件夹和内容，以后预览图只在本地生成」。
-第六轮用户定调：「按照你推荐进行」= 530KB 全量切分 + A/C 工具组 + 解掉回编译限制。
+第六轮用户定调：「按照你推荐进行」= 530KB 全量切分 + A/C 工具组 + 解掉回编译限制。**已验收**。
+第七轮用户定调：「我要的是内置到App当中去，而不是装在我的本机上，你装在我的本机上别人如何使用呢？」——这是本轮最重要的纠偏。
+
+---
+
+## ⚠️ 第七轮：Frida 内置（代码已定稿，待编译 + 真机验收）
+
+### 用户的核心要求（务必遵守）
+
+**Frida 必须做成 App 内置能力，随 APK 分发，别人装上点一下就能用。**
+
+绝对不要再走「手工装到本机」的路线。上一轮我犯了这个错，把 84MB 的 `frida-server` 手工推到了用户手机的 `/data/local/tmp/.eta/etad`，用户明确指出：**「你装在我的本机上别人如何使用呢？」**
+
+**该残留已于本轮清理完毕**：`kill -9 28082` + 删除 `/data/local/tmp/.eta`，端口 8899 已释放。
+
+### 本轮改了什么（2026-10-19 第二轮）
+
+| # | 改动 | 为什么 |
+|---|---|---|
+| 1 | **四个架构的 sha256 + sizeBytes 全部补齐** | 原来 arm / x86_64 / x86 是空串和 0，下载器校验必失败。数据从 `https://api.github.com/repos/frida/frida/releases/tags/17.24.2` 拉的，不是猜的 |
+| 2 | `installCli()` 改为**运行时探测 python** | 实测 rootfs 里 `/usr/bin/python3` **不存在**，`python3` 是 `/usr/local/bin/python3` → uv 托管的 `/opt/eta/python/cpython-3.14.7-linux-aarch64-gnu/bin/python3.14`。路径随架构/版本变，写死必炸 |
+| 3 | `installCliCommand()` 加**版本已对就跳过 pip** | 重装一次要下 30MB，按钮不该每次点都卡半天 |
+| 4 | 装完 CLI 后统一 `ln -sf` 到 `/usr/local/bin` | chroot 的 PATH 是调用方注入的，不保证含 uv 的 bin 目录 |
+| 5 | 连通复核改用**绝对路径** `/usr/local/bin/frida-ps` | 原先用 `command -v`，实测在 chroot 里直接误报失败（rc=69） |
+| 6 | 判活主据改成 **TCP 探测 127.0.0.1:8899** | Android 10+ 的 `/proc` 挂 hidepid，App 身份读不到 root 进程的 `/proc/<pid>/stat`，原判活永远返回「已停止」 |
+| 7 | pid 定位改在 **root shell 里扫 `/proc/*/cmdline`** | `setsid ... &` 的 `$!` 是短命父进程，pid 文件是脏数据；且 cmdline 是 NUL 分隔，必须先 `tr '\000' ' '` 再匹配 |
+| 8 | 新增 `ensureRunning()`，Start 按钮走它 | server 在但 CLI 被清掉时，只 `startServer()` 会得到「起来了却连不上」的死状态 |
+| 9 | `install()` 不再「server 在就直接 return」 | 同上：会永远停在「已安装但连不上」 |
+| 10 | `verifyConnection()` 去掉 `\| head -5` 管道 | 管道退出码是 `head` 的，永远 0，`timeout` 打到 124 也看不出来 |
+| 11 | 安装前预检 **Root 是否已授权** | 没有 Root 时提前返回 `RootRequired`，不再等到 STARTING 才报含糊错误 |
+| 12 | 删掉 `ProcessHandleCompat` | 改成 hidepid 安全的 TCP 探测后已无引用 |
+
+### 已实测验证的部分（有据可查）
+
+| 项 | 验证方式 | 结果 |
+|---|---|---|
+| `installCliCommand()` 的 shell 语法 | 从 Kotlin 源码反解出真实命令串，`bash -n` / `dash -n` / `sh -n` 三种 shell 校验 | 三者 rc=0 |
+| 同上，端到端实跑 | `cp` 进真实 Debian rootfs，`chroot <rootfs> /bin/sh /tmp/fv.sh` | `FRIDA_PYTHON=/usr/local/bin/python3` / `FRIDA_CLI_ALREADY=17.24.2` / `FRIDA_CLI=/usr/local/bin/frida-ps` / `FRIDA_CLI_OK`，rc=0 |
+| `detectServerPid()` 的命令 | 在 Android root shell 里原样执行，目标换 `/system/bin/sh` | `PID=14259`，匹配正确 |
+| 本机已装组合 | 直接读 rootfs 的 site-packages | `frida 17.24.2` + `frida_tools 14.11.0` + `pip 26.2.1`，与代码锁定值一致 |
+| 残留清理 | `ps -A` / `ss -lntp` | 无 etad 进程、8899 已释放 |
+
+### 仍未验证（别把没验证的说成能用）
+
+| 项 | 状态 |
+|---|---|
+| 整个改动的**编译** | ❌ 未跑。按 AGENTS.md 与用户要求，编译只走 CI |
+| App 内置流程端到端（点安装 → 装好 → 能连上） | ❌ 完全没跑过，需要真机 |
+| `startServer()` 用 root + setsid 起在 `filesDir` | ❌ 未验证。上次是手工推到 `/data/local/tmp` 起的，没走 App 代码 |
+| `frida-ps -H 127.0.0.1:8899` 真能连上 | ❌ 未验证。上一轮就是卡在这里（shell 返回空），本轮换了命令写法但仍需实测 |
+
+### 剩下必须做的事（按顺序）
+
+```
+□ 1. git add -A && git commit && git push origin clean:main
+       commit message 建议：feat(frida): 内置 frida-server 与 frida-tools 安装链路
+□ 2. 看 CI 结果，按报错修（不要在本地跑 ./gradlew）
+□ 3. 真机验收：
+       设置 → 终端 → Linux 环境 → 可选工具 → Frida dynamic instrumentation
+       点「安装」→ 观察 6 个阶段是否走完
+       → 点「停止」→ 再点「启动」
+       → 在终端里 `frida-ps -H 127.0.0.1:8899` 确认有进程列表
+□ 4. 若 verify 仍失败，先看 logcat 里 `Frida action=verify` 的 output 字段（本轮已把输出打进日志）
+□ 5. 收工协议 8 项
+```
+
+### 一个必须记录的决策
+
+**Frida 不做开机自启。** 理由：`frida-server` 常驻会明显增加耗电，且大多数逆向场景是「要用的时候开、用完就停」。UI 上给了 Start / Stop 两个按钮，由用户自己控制。如果将来用户要求自启，再写 `/data/adb/service.d/` 脚本（但那就又回到「本机手工配置」的老路，需要先和用户确认）。
+
+---
+
+## 第六轮已完成（已验收）
 
 **第六轮已做（2026-10-19）**
 

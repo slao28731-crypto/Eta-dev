@@ -50,6 +50,14 @@
 - [x] **2026-10-19** 补齐逆向工具链（A 组）：Debian rootfs 装 `binutils 2.44`（readelf/objdump/nm/strings/addr2line/size）、`bsdextrautils 2.41`（hexdump）、`xxd 9.1`；Python 3.14 装 `capstone 5.0.7` + `lief 1.0.0`（需 `--break-system-packages` 绕 PEP 668）。实测 `readelf` 能读 `.so`、`capstone` 能反汇编、`lief` 能解析 ELF/PE
 - [x] **2026-10-19** 解掉 APK 回编译限制（C 组）：装 `aapt2 2.19` + `apksigner 0.9`；`LinuxApkAnalysisInstaller` 的 `APKTOOL_WRAPPER` 原本写死 `b|build` 直接报 `APKTOOL_BUILD_UNAVAILABLE`，改为自动追加 `--aapt /usr/local/bin/aapt2-wrapper`。**踩坑**：apktool 会把 aapt2 复制到 `/tmp` 再执行，复制丢 x 位，报 `Syntax error: "(" unexpected` → 新增 `AAPT2_WRAPPER`（`exec /usr/bin/aapt2`），复制后仍能跑。`APK_ANALYSIS_REVISION` 1→2 让已装环境重走安装；验证步骤新增 `aapt2-wrapper version` 检查
 - [x] **2026-10-19** 改 `AgentPromptBuilder.kt:122` 的过时提示：原文写死「当前 apktool 不支持回编译」，等于每次 run 都告诉模型这条路走不通。改为「jadx/apktool/smali/baksmali/aapt2/apksigner 已就位 + 回编译用 `--aapt /usr/local/bin/aapt2-wrapper` + 签名用 apksigner」
+- [x] **2026-10-19** 第六轮真机验收通过：用户重装 APK 分析工具后 `profile=2` 生效，六项验证（java/jadx/apktool/smali/baksmali/aapt2-wrapper）全 OK。补装 `pyelftools` + `pyaxmlparser` 并加 `apkinfo` 软链（不解包即可读包名/权限）
+- [x] **2026-10-19** 修正第六轮引入的故障：`linuxApkJavaInstallCommand` 把 `aapt2` 当独立 apt 包名，Debian 无此包（由 `android-sdk-build-tools` 提供），整条命令 `Unable to locate package` 失败，UI 却报「安装 OpenJDK 25 失败」（实际 java 早已装好）。改为 `android-sdk-build-tools`，提交 `a493d33`
+- [x] **2026-10-19** 实测澄清 APK 工具链真实能力：`apktool d` / `jadx`（6391 文件 37MB）/ `baksmali`（8.9MB dex）/ `smali` / `apksigner` 全部跑通；**`apktool b` 资源回编译走不通**（Debian aapt2 仅 2.19，apktool 3.0.3 传 `--no-compile-sdk-metadata` 报 `unknown option`）。逆向闭环改走 dex 直换（`apktool d → baksmali → 改 smali → smali → zip 替换 → apksigner`），该链路已实测完整跑通
+
+## 进行中（交接给下一个 Agent）
+
+- [ ] **2026-10-19** 第七轮 Frida 内置（**代码已定稿，待 CI 编译 + 真机验收**）：用户要求 Frida 随 APK 分发，不要手工装本机。已写 `agent/terminal/FridaInstaller.kt` + `LinuxEnvironmentScreen.kt` 三态按钮 + `strings.xml` 8 条文案 + `re-mobile/SKILL.md` 第 4 步重写 + `AgentPromptBuilder` Frida 提示。本轮把四个架构的 sha256/size 全部补齐、修了三处会在真机上直接失效的缺陷（见下）。**待办：push 走 CI 编译 → 按报错修 → 真机验收**。详见 `docs/STATE.md` 的「第七轮」段
+- [x] **2026-10-19** 清掉上一轮误装的本机残留：`kill -9 28082`（SIGTERM 被 ksu 域忽略）、`rm -f /data/local/tmp/.eta/etad /data/local/tmp/.eta/d.log && rmdir /data/local/tmp/.eta`。**84,805,800 字节**，端口 8899 已释放（原来监听 `0.0.0.0:8899`，不清掉新代码的 `startServer()` 必然端口冲突，`frida-ps` 也会连到旧进程上给出假阳性）
 
 ## 进行中
 

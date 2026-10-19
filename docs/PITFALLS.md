@@ -342,6 +342,109 @@ apktool d → baksmali d → 改 smali → smali a → zip 替换 dex → apksig
 
 ---
 
+---
+
+## P090 · 把「App 内置能力」做成了「本机手工配置」，方向根本错了
+
+**现象**：用户要求「Frida 内置到 App」，我下载了 84MB 的 `frida-server`，手工推到用户手机的 `/data/local/tmp/.eta/etad`，又在用户自己的 Debian rootfs 里 pip 装了 frida-tools。用户反问：**「我想让它内置到 App 当中去，而不是装在我的本机上，你装在我的本机上别人如何使用呢？」**
+**根因**：我把「在用户设备上让功能跑起来」当成了目标，而用户的目标是**「让所有装了这个 APK 的人都能用」**。这两件事在开发阶段看不出差别（都能跑），但在分发阶段差一个数量级——手工装的任何东西都不会随 APK 走。
+**正确做法**：照着项目已有的 `LinuxApkAnalysisInstaller` 写一个 `FridaInstaller`——App 自己下载、SHA-256 校验、解压、安装、启动、验证，用户在设置页点一个按钮。这一步项目里已经有完整范式可抄，我却没有先去看它。
+**教训**：**遇到「内置 / 集成 / 支持 XX」这类需求，第一个动作应该是「找项目里已有的同类实现，照着抄」。** 这个仓库里 `LinuxApkAnalysisInstaller`、`AlpineEnvironmentInstaller`、`DebianEnvironmentInstaller`、`LinuxPackageProfiles` 四套安装器已经把「下载→校验→安装→验证→UI 接入」的范式写全了，抄一遍就能对。手工装到本机是小作坊思路，永远交付不出去。
+
+---
+
+## P091 · 反复在本地跑 gradlew 编译，全部卡死且返回空结果
+
+**现象**：连续多次执行 `./gradlew :app:compileDebugKotlin --offline`，每次都超时或返回空输出，最长一次跑到 20 分钟无结果。用户明确质问：**「编译不是在云端编译吗？你本机编译什么？」**
+**根因**：这个仓库的 CI（`.github/workflows/build-apk.yml`）在 push 到 main 后会自动编译 debug + release 双 APK。本地 PRoot 环境跑 Gradle 又慢又容易卡（AAPT2 daemon 起不来、Kotlin daemon 内存不足）。**本地编译在这里既慢又不可靠，且完全没必要。**
+**正确做法**：改完代码 → 直接 `git push origin clean:main` → 看 CI 结果 → 按报错修。本地只做**静态检查**：`grep` 确认引用的 `R.string.xxx` 在 `strings.xml` 里真的存在、`getString` 的占位符数量对得上、import 的类真的存在。这些 grep 一秒就能查完，比跑 Gradle 快两个数量级。
+**教训**：**先确认项目有没有 CI，有就别在本地编译。** 另外我在这轮还犯了一个连带错误：本地没编译，就等于没验证，却把「已写完」当成了「已完成」——交接时必须如实写「未编译验证」，不能含糊。
+
+---
+
+## P092 · `getString` 占位符数量不匹配，只有编译才会报
+
+**现象**：`FridaInstallResult.InsufficientSpace` 分支写 `context.getString(R.string.linux_insufficient_space, requiredBytes.toReadableSize(context))`，只传 1 个参数。
+**根因**：`strings.xml` 里该字符串是 `<string name="linux_insufficient_space">Not enough space: %1$s required, %2$s available</string>` —— **两个占位符**。少传一个会在编译期报错（`Format string ... requires 2 arguments`）。
+**解法**：补成 `requiredBytes.toReadableSize(context), availableBytes.toReadableSize(context)`。同时发现并修掉另外三个**不存在**的资源名引用（`linux_environment_not_ready` / `linux_root_required` / `linux_install_failed`），改用已有的 `linux_not_installed` / `linux_root_unavailable`。
+**教训**：**在不能编译的环境里改 UI 代码，必须手工核对 `R.string.*` 是否存在、占位符数量是否匹配。** 一条 `grep 'name="linux_' strings.xml` 就能拿到全部可用资源名，比等 CI 报错快得多。这轮我一开始就是靠这个 grep 才发现两个隐藏的编译错误。
+
+---
+
+## P093 · `frida-tools` 的版本号跟 `frida` 不是一套编号
+
+**现象**：`FridaInstaller` 写 `pip install frida==17.24.2 frida-tools==17.24.2`，执行必挂。
+**根因**：`frida`（Python 绑定）和 `frida-server`（二进制）都是 17.24.2，但 **`frida-tools` 是另一个独立编号的项目，最新只到 14.11.0**，PyPI 上根本没有 17.x 的 frida-tools。`pip` 会报 `No matching distribution found`，整个安装卡在 `INSTALLING_CLI`。本机实测通过的正确组合是 `frida 17.24.2` + `frida-tools 14.11.0`，其 setup 依赖写的是 `frida>=17.10.0,<18.0.0`——**只约束范围，不跟版本号**。
+**解法**：拆成两个常量 `FridaPaths.VERSION = "17.24.2"` 与 `FridaPaths.TOOLS_VERSION = "14.11.0"`。
+**教训**：**同属一个产品的多个包，版本号不一定同步。** 写死版本前先去 PyPI 的 `pypi.org/pypi/<pkg>/json` 看 `info.version` 和 `requires_dist`，别按主包版本想当然。
+
+---
+
+## P094 · Android 原生环境没有 `xz`，chroot 内又看不到宿主路径
+
+**现象**：`extractXz()` 用 `TerminalEnvironment.ANDROID` 执行 `xz -dc archive.xz > out`，真机上必然失败。
+**根因（两层）**：
+1. **Android 侧没有 xz。** 实测 `/system/bin`、`/system/xbin`、`/vendor/bin`、`/data/adb/ksu/bin` 全都没有，`toybox | grep xz` 无结果，`command -v xz` 返回 not found。只有 PRoot/Debian rootfs 里有。
+2. **改到 Debian 侧也不行。** chroot 的根是 rootfs，**看不到宿主侧的 `filesDir` / `cacheDir`**：实测在 chroot 内 `ls /data/data/io.github.mangi.eta/files/frida` 返回 `No such file or directory`。要跨边界就得先把 xz 包搬进 rootfs、解完再搬出来，多两次 84MB 拷贝。
+**正确做法**：**纯 Kotlin 解压**。项目已依赖 `org.tukaani:xz 1.12`（`gradle/libs.versions.toml:27`），用 `XZInputStream(raw, 128 * 1024)` 直接解流。现成写法在 `RootlessLinuxInstaller.kt:27`，照着抄即可。frida-server 的 `.xz` 是单流压缩（不是 tar.xz），只需要解流。
+**教训**：**Android 是精简 Linux，别假设 GNU 工具链齐全。** 需要压缩/解压/归档时优先找 JVM 侧库（项目已有 `commons-compress` + `tukaani:xz`），不要调用外部命令——外部命令在 Android 侧缺、在 chroot 侧又有路径隔离问题，两头都不讨好。
+
+---
+
+## P095 · `python3 -m pip` 装进去的 Python，和 `frida-ps` 指向的 Python 不是同一个
+
+**现象**：把 `frida` + `frida-tools` 装完，`frida-ps` 却调不动或版本不对。
+**根因（实测数据）**：Eta 的 Debian rootfs 里，`/usr/bin/python3` **根本不存在**（`ls` 返回 No such file）。真正生效的是：
+```
+/usr/local/bin/python3  ->  /opt/eta/python/cpython-3.14-linux-aarch64-gnu/bin/python3.14
+                            （再软链到 cpython-3.14.7-linux-aarch64-gnu/）
+```
+`frida*` 的入口脚本全部软链在 `/usr/local/bin/`，指向 `/opt/eta/python/cpython-3.14.7-.../bin/`。也就是**只有一个 Python，但它的路径带版本号和架构号，会随升级/换架构变化**。任何写死 `/usr/bin/python3` 或写死 `cpython-3.14` 的代码，换一台设备就可能炸。
+**解法**：安装脚本运行时逐个探测（`/usr/local/bin/python3` → `/usr/bin/python3` → `/opt/eta/python/*/bin/python3` → PATH 里的 `python3`），找到哪个用哪个。
+**教训**：**在容器/发行版里，"python3 在哪儿" 是个运行时事实，不是编译期常量。**
+
+---
+
+## P096 · `command -v frida-ps` 在 chroot 里会误报「没装」
+
+**现象**：`frida-ps` 明明存在且可执行（`test -x` 通过），但脚本里 `if ! command -v frida-ps` 判定为失败，安装报 `FRIDA_CLI_NOT_ON_PATH`，rc=69。
+**根因**：chroot 内的 `PATH` 是**调用方注入的**。直接 `chroot <rootfs> /bin/sh -c 'echo $PATH'` 拿到的是宿主 Android 的 PATH：
+```
+/product/bin:/apex/com.android.runtime/bin:...:/system/bin:/vendor/bin:/data/adb/ksu/bin
+```
+**里面没有 `/usr/local/bin`**。但 Eta 正常调用时（`ShellProcessSupervisor`）会显式传 `PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`，所以真机跑起来是对的、手工验证时是错的——两种环境不一致。
+**解法**：复核一律用**绝对路径**（`[ -x /usr/local/bin/frida-ps ]`），不用 `command -v`。凡是要给用户/模型直接敲的命令，都用绝对路径。
+**教训**：**在 chroot 里判定"命令在不在"，`command -v` 不可靠（取决于 PATH 怎么来），`test -x 绝对路径` 才可靠。** 验证脚本和真实调用路径不一致时，先对齐环境再下结论。
+
+---
+
+## P097 · Android 10+ 的 `/proc` 有 hidepid，App 身份读不到 root 进程
+
+**现象**：frida-server 明明在跑（`ps -A | grep etad` 能看到 pid、`ss -lntp` 能看到 LISTEN），但 App 里 `isRunning()` 一直返回 false，UI 永远显示「已停止」，Stop 按钮也杀不掉。
+**根因**：判活用的是「读 `/proc/<pid>/stat`」，而 server 是 root 起的、App 是普通 uid。Android 10+ 的 `/proc` 挂了 hidepid 语义，**跨 uid 读 `/proc/<pid>/stat` 会直接 FileNotFound**，不是权限错误、只是文件"不存在"，`runCatching` 里完全看不出异常。
+**解法**：主判据换成 **TCP 探测 `127.0.0.1:8899`**——server 活着就必然在 listen，这个信号不依赖任何权限、也不会被 SELinux 挡。端口连不上时再退回 pid 文件 + `/proc`（同 uid 场景仍有效）。pid 定位本身则放进 **root shell** 里扫 `/proc/*/cmdline`，那里权限完整。
+**教训**：**判断"别人的进程活着"不要走 `/proc`，走它必然会暴露的服务端口。** 顺带：`/proc/<pid>/cmdline` 是 NUL 分隔的，直接 `head -c` 取前缀会带上 `\0` 匹配不上，要先 `tr '\000' ' '` 再比。
+
+---
+
+## P098 · `setsid ... &` 的 `$!` 是个短命父进程，写进 pid 文件就是脏数据
+
+**现象**：`startServer()` 记下的 pid 过一会儿就无效了（`/proc/<pid>` 消失），但 server 实际在跑。此时 Stop 杀不掉、状态显示错误。
+**根因**：Android toybox 的 `setsid` 会先 fork 再 exec，`$!` 拿到的是那层很快就退出的父进程，不是最终 exec 出来的 server。真 pid 是它的子进程。
+**解法**：pid 文件只当"提示"，真实 pid 靠起完之后**扫 `/proc/*/cmdline` 按 server 绝对路径前缀匹配**再回写一次。同理 Stop 时也不用 pid 文件，现场扫一遍。
+**教训**：**凡是 daemon 化（double-fork / setsid / nohup）的启动方式，`$!` 都不可信。** 要么让程序自己写 pidfile，要么起完再去系统里找。
+
+---
+
+## P099 · `cmd | head -5` 顺手把退出码也"吞"了
+
+**现象**：`verifyConnection()` 里写 `timeout 30 frida-ps ... 2>&1 | head -5`，无论 frida-ps 成功、失败还是 timeout（124），这个管道的退出码**永远是 0**（`head` 自己的退出码）。于是失败被当成成功，`isRunning` 一旦再出错就彻底查不出原因。
+**根因**：POSIX 管道的退出码 = 最后一个命令的退出码。没开 `pipefail` 的话中间命令的失败全部丢失。
+**解法**：去掉管道，直接跑；真需要截断就在 Kotlin 侧 `.take(240)`，同时把输出打进日志（`AndroidAgentLogger.info` 里带上 `output=`）。`InstallerShellRunner` 本身就有 64KB 输出上限，不需要 `head` 帮忙截。
+**教训**：**在需要判断成败的地方，一个管道就能把错误码吃掉。** 报错路径上绝不要用 `| head`、`| tail`、`| grep` 收尾，除非显式 `set -o pipefail`。
+
+---
+
 ### P060 · `graphify extract` 扫不到文件
 **现象**：节点数远少于预期。
 **根因**：graphify 按 `.gitignore` 取文件。生成物、缓存目录如果写在 ignore 里就会被跳过。

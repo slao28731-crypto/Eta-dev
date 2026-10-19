@@ -33,6 +33,10 @@ import io.github.mangi.eta.agent.terminal.DebianInstallProgress
 import io.github.mangi.eta.agent.terminal.DebianInstallResult
 import io.github.mangi.eta.agent.terminal.DebianInstallStage
 import io.github.mangi.eta.agent.terminal.DetachedTaskSupervisor
+import io.github.mangi.eta.agent.terminal.FridaInstallProgress
+import io.github.mangi.eta.agent.terminal.FridaInstallResult
+import io.github.mangi.eta.agent.terminal.FridaInstallStage
+import io.github.mangi.eta.agent.terminal.FridaInstaller
 import io.github.mangi.eta.agent.terminal.LinuxApkAnalysisInstaller
 import io.github.mangi.eta.agent.terminal.LinuxDistribution
 import io.github.mangi.eta.agent.terminal.LinuxEnvironmentPaths
@@ -73,6 +77,7 @@ private enum class InstallTarget {
     BASE,
     TOOLS,
     APK_ANALYSIS,
+    FRIDA,
     PYTHON,
     NODE,
     SSH,
@@ -150,6 +155,9 @@ internal fun LinuxEnvironmentScreen(
     val apkAnalysisInstaller = remember(appContext, selectedDistribution, backend) {
         LinuxApkAnalysisInstaller(appContext, selectedDistribution)
     }
+    val fridaInstaller = remember(appContext, selectedDistribution, backend) {
+        FridaInstaller(appContext, selectedDistribution)
+    }
     val profileInstallers = remember(appContext, selectedDistribution, backend) {
         packageProfileUis.associate { profileUi ->
             profileUi.target to LinuxPackageProfileInstaller(
@@ -173,6 +181,9 @@ internal fun LinuxEnvironmentScreen(
         mutableStateOf(apkAnalysisInstaller.isReady())
     }
     var apkAnalysisProgress by remember { mutableStateOf<ApkAnalysisInstallProgress?>(null) }
+    var fridaReady by remember(selectedDistribution, backend) { mutableStateOf(fridaInstaller.isReady()) }
+    var fridaRunning by remember(selectedDistribution, backend) { mutableStateOf(fridaInstaller.isRunning()) }
+    var fridaProgress by remember { mutableStateOf<FridaInstallProgress?>(null) }
     var kimiWebLaunching by remember { mutableStateOf(false) }
     var kimiWebRunning by remember(selectedDistribution, backend) { mutableStateOf(false) }
     val kimiWebLauncher = remember(appContext) {
@@ -271,6 +282,8 @@ internal fun LinuxEnvironmentScreen(
                 it.target to profileInstallers.getValue(it.target).isReady()
             }
             apkAnalysisReady = apkAnalysisInstaller.isReady()
+            fridaReady = fridaInstaller.isReady()
+            fridaRunning = fridaInstaller.isRunning()
             progress = null
             debianProgress = null
             busyTarget = null
@@ -307,6 +320,7 @@ internal fun LinuxEnvironmentScreen(
                     LinuxDistribution.DEBIAN -> debianProgress?.summary(context)
                 }
                 InstallTarget.APK_ANALYSIS -> apkAnalysisProgress?.summary(context)
+                InstallTarget.FRIDA -> fridaProgress?.summary(context)
                 else -> profileProgressSummary
             }
             LinuxEnvironmentStatusCard(
@@ -525,6 +539,59 @@ internal fun LinuxEnvironmentScreen(
                             )
                         },
                     )
+                    EtaPreferenceDivider(hasLeading = false)
+                    EtaPreference(
+                        title = stringResource(R.string.linux_frida_tools),
+                        summary = fridaProgress?.summary(context) ?: when {
+                            !fridaReady -> context.getString(R.string.linux_frida_tools_summary)
+                            fridaRunning -> context.getString(R.string.linux_frida_tools_ready)
+                            else -> context.getString(R.string.linux_frida_stopped)
+                        },
+                        endActions = {
+                            EtaTextButton(
+                                text = when {
+                                    busyTarget == InstallTarget.FRIDA -> context.getString(R.string.linux_installing)
+                                    !fridaReady -> context.getString(R.string.linux_install)
+                                    fridaRunning -> context.getString(R.string.linux_frida_stop)
+                                    else -> context.getString(R.string.linux_frida_start)
+                                },
+                                enabled = busyTarget == null && !requiresRoot,
+                                onClick = {
+                                    if (busyTarget != null) return@EtaTextButton
+                                    busyTarget = InstallTarget.FRIDA
+                                    resultMessage = null
+                                    launchInstallation {
+                                        if (!fridaReady) {
+                                            val result = fridaInstaller.install { update ->
+                                                withContext(Dispatchers.Main.immediate) {
+                                                    fridaProgress = update
+                                                }
+                                            }
+                                            fridaReady = fridaInstaller.isReady()
+                                            fridaRunning = fridaInstaller.isRunning()
+                                            fridaProgress = null
+                                            resultMessage = result.toMessage(context)
+                                        } else if (fridaRunning) {
+                                            fridaInstaller.stopServer()
+                                            fridaRunning = fridaInstaller.isRunning()
+                                        } else {
+                                            // 不只 startServer：server 在但 CLI 被清掉时，
+                                            // 只起进程会得到「起来了却连不上」的死状态。
+                                            val result = fridaInstaller.ensureRunning { update ->
+                                                withContext(Dispatchers.Main.immediate) {
+                                                    fridaProgress = update
+                                                }
+                                            }
+                                            fridaRunning = fridaInstaller.isRunning()
+                                            fridaProgress = null
+                                            resultMessage = result.toMessage(context)
+                                        }
+                                        busyTarget = null
+                                    }
+                                },
+                            )
+                        },
+                    )
                 }
             }
         }
@@ -532,6 +599,42 @@ internal fun LinuxEnvironmentScreen(
 }
 
 private fun Long.toReadableSize(context: Context): String = Formatter.formatShortFileSize(context, this)
+
+private fun FridaInstallProgress.summary(context: Context): String {
+    val stageName = when (stage) {
+        FridaInstallStage.CHECKING -> context.getString(R.string.linux_checking)
+        FridaInstallStage.DOWNLOADING -> "Downloading Frida server"
+        FridaInstallStage.EXTRACTING -> "Extracting Frida server"
+        FridaInstallStage.INSTALLING_CLI -> "Installing frida-tools"
+        FridaInstallStage.STARTING -> "Starting Frida server"
+        FridaInstallStage.VERIFYING -> "Verifying connection"
+        FridaInstallStage.COMPLETE -> context.getString(R.string.linux_installed)
+    }
+    if (stage != FridaInstallStage.DOWNLOADING || totalBytes <= 0L) return stageName
+    val percent = (downloadedBytes * 100L / totalBytes).coerceIn(0L, 100L)
+    return context.getString(R.string.linux_progress_percent, stageName, percent)
+}
+
+private fun FridaInstallResult.toMessage(context: Context): String = when (this) {
+    FridaInstallResult.AlreadyReady -> context.getString(R.string.linux_frida_tools_ready)
+    FridaInstallResult.Installed -> context.getString(R.string.linux_frida_tools_ready)
+    FridaInstallResult.EnvironmentNotReady -> context.getString(R.string.linux_not_installed)
+    FridaInstallResult.RootRequired -> context.getString(R.string.linux_root_unavailable)
+    FridaInstallResult.UnsupportedAbi -> "This device ABI is not supported by Frida server"
+    is FridaInstallResult.InsufficientSpace -> context.getString(
+        R.string.linux_insufficient_space,
+        requiredBytes.toReadableSize(context),
+        availableBytes.toReadableSize(context),
+    )
+    is FridaInstallResult.Failed -> when (stage) {
+        FridaInstallStage.DOWNLOADING -> "Failed to download Frida server"
+        FridaInstallStage.EXTRACTING -> "Failed to extract Frida server"
+        FridaInstallStage.INSTALLING_CLI -> "Failed to install frida-tools"
+        FridaInstallStage.STARTING -> "Failed to start Frida server (root required)"
+        FridaInstallStage.VERIFYING -> "Frida server started but the CLI could not connect"
+        else -> context.getString(R.string.linux_not_installed)
+    }
+}
 
 private fun AlpineInstallProgress.summary(context: Context): String {
     val stageName = stage.displayName(context)

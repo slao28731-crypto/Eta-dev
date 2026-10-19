@@ -161,14 +161,35 @@ lib.write("libgame_patched.so")
 
 细节读 `references/binary-re.md` 和 `references/apk-static.md`。
 
-### 第 4 步：动态分析（Frida）
+>### 第 4 步：动态分析（Frida）
 
-**Frida 当前未预装，动手前先确认**：
+**Frida 是 App 内置能力，让用户点按钮装，不要自己 `adb push`。**
+
+装在哪：`设置 → 终端 → Linux 环境 → 可选工具 → Frida dynamic instrumentation`，点一次「安装」就行。App 会自己完成：下载对应的 `frida-server-17.24.2-android-<abi>.xz` → SHA256 校验 → 解压到 App 私有目录 `filesDir/frida/etad` → 在 Debian 侧 pip 装 `frida==17.24.2` + `frida-tools==14.11.0` → 用 root 起 server → `frida-ps` 连通验证。装完之后同一个按钮变成「启动 / 停止」，**不做开机自启**，用完点停止，省电也少留痕迹。
+
+**动手前先探活**（不要假设已装）：
 
 ```bash
-command -v frida && frida --version
-# 如果没有，先问用户是否要装，不要自己静默下载 110MB 的 frida-server
+# Linux 环境里
+command -v frida frida-ps && frida-ps --version
+# Android 侧确认 server 在跑（端口是 8899，不是默认的 27042）
+su -c 'ss -lntp | grep 8899'
 ```
+
+**探活结果怎么处理**：
+
+| 现象 | 结论 | 怎么做 |
+|---|---|---|
+| `frida-ps` 不存在 | CLI 没装 | 告诉用户去设置里点「Frida dynamic instrumentation」的安装按钮 |
+| CLI 在但 `8899` 没监听 | server 没起 | 让用户点「启动」，或在 Android 侧 `su -c '<filesDir>/frida/etad -l 127.0.0.1:8899 &'` |
+| 8899 在监听但连不上 | 版本不匹配或端口被打断 | 查 `frida-ps --version` 是否 17.x；查 `ps -A \| grep etad` 是否有进程 |
+
+**版本铁律，别弄错**：
+
+- `frida`（Python 绑定）与 `frida-server`（设备端二进制）**必须都是 17.24.2**，差一个补丁版都会报 `unable to find process`
+- `frida-tools` 是**独立版本线**，当前是 **14.11.0**，不是 17.x。写成 `frida-tools==17.24.2` 会让 pip 直接 `No matching distribution`
+
+**端口是 8899 不是 27042**：默认端口是反调试最爱扫的特征，App 里已改成 8899。所有连接都要显式带 `-H 127.0.0.1:8899`。
 
 **Frida 能用了之后的常用姿势**：
 
