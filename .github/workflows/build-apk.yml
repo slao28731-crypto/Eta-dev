@@ -40,6 +40,21 @@ jobs:
         # 任何一处写错都要到编译期或真机才暴露，这里提前挡掉。
         run: python3 ci/verify_re_lab_profiles.py
 
+      - name: 校验 profile 声明顺序
+        shell: bash
+        # Kotlin object 属性按声明顺序初始化。`val ALL = listOf(..., RE_LAB)` 若写在
+        # RE_LAB 之前，编译直接报 `Variable 'RE_LAB' must be initialized`。
+        # 本地是 aarch64，跑不了 x86_64 的 aapt2，只能等 CI —— 一次往返十分钟，
+        # 已经踩过两次（run #34 的 ALL、本轮的 RE_LAB_PIP_STEPS）。
+        run: |
+          python3 ci/verify_profile_decl_order.py
+          python3 ci/self_test_profile_decl_order.py
+
+      - name: 本地静态检查（括号 / 资源 / import）
+        shell: bash
+        # 与本地跑的是同一个脚本，保证本地过 = CI 过。
+        run: python3 ci/static_check.py
+
       - name: 配置 JDK 25
         uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
         with:

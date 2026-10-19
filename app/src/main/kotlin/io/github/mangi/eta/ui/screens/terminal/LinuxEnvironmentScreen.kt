@@ -189,6 +189,8 @@ internal fun LinuxEnvironmentScreen(
     var progress by remember { mutableStateOf<AlpineInstallProgress?>(null) }
     var debianProgress by remember { mutableStateOf<DebianInstallProgress?>(null) }
     var profileProgressSummary by remember { mutableStateOf<String?>(null) }
+    // 保存结构化进度，用于算进度条；summary 只是给文本用的。
+    var profileProgress by remember { mutableStateOf<PackageProfileInstallProgress?>(null) }
     var resultMessage by remember { mutableStateOf<String?>(null) }
     var profileReady by remember(selectedDistribution, backend) {
         mutableStateOf(packageProfileUis.associate { it.target to profileInstallers.getValue(it.target).isReady() })
@@ -239,6 +241,7 @@ internal fun LinuxEnvironmentScreen(
                 progress = null
                 debianProgress = null
                 profileProgressSummary = null
+                profileProgress = null
                 apkAnalysisProgress = null
                 busyTarget = null
             }
@@ -339,6 +342,18 @@ internal fun LinuxEnvironmentScreen(
                 InstallTarget.FRIDA -> fridaProgress?.summary(context)
                 else -> profileProgressSummary
             }
+            // 进度条的取值来源，按"下载看字节、安装看步骤"分开算：
+            // 下载阶段 totalBytes 已知，用户能看到 37% 这种真实数字；
+            // 安装阶段没有字节可算，改用「第几步 / 共几步」。
+            val activeFraction: Float? = when (busyTarget) {
+                InstallTarget.BASE, InstallTarget.TOOLS -> when (selectedDistribution) {
+                    LinuxDistribution.ALPINE -> progress?.fraction()
+                    LinuxDistribution.DEBIAN -> debianProgress?.fraction()
+                }
+                InstallTarget.APK_ANALYSIS -> apkAnalysisProgress?.fraction()
+                InstallTarget.FRIDA -> fridaProgress?.fraction()
+                else -> profileProgress?.fraction()
+            }
             LinuxEnvironmentStatusCard(
                 title = listOfNotNull(selectedDistribution.displayName(), version?.takeIf { it.isNotBlank() })
                     .joinToString(" "),
@@ -358,6 +373,7 @@ internal fun LinuxEnvironmentScreen(
                     )
                 },
                 busy = busyTarget != null || kimiWebLaunching,
+                progress = activeFraction,
                 message = resultMessage,
                 actionText = when {
                     requiresRoot -> stringResource(R.string.capability_enhancements)
@@ -506,11 +522,13 @@ internal fun LinuxEnvironmentScreen(
                                             val profileInstaller = profileInstallers.getValue(profileUi.target)
                                             val result = profileInstaller.install { update ->
                                                 withContext(Dispatchers.Main.immediate) {
+                                                    profileProgress = update
                                                     profileProgressSummary = update.summary(context, profileTitle)
                                                 }
                                             }
                                             profileReady = profileReady +
                                                 (profileUi.target to profileInstaller.isReady())
+                                            profileProgress = null
                                             profileProgressSummary = null
                                             busyTarget = null
                                             resultMessage = result.toMessage(context, profileTitle)
@@ -652,6 +670,34 @@ private fun FridaInstallResult.toMessage(context: Context): String = when (this)
     }
 }
 
+/** 有字节总量时返回 0f..1f，否则 null（交给 UI 只转圈）。 */
+private fun fractionOf(downloaded: Long, total: Long): Float? {
+    if (total <= 0L) return null
+    return (downloaded.toDouble() / total.toDouble()).toFloat().coerceIn(0f, 1f)
+}
+
+private fun AlpineInstallProgress.fraction(): Float? = fractionOf(downloadedBytes, totalBytes)
+
+private fun DebianInstallProgress.fraction(): Float? = fractionOf(downloadedBytes, totalBytes)
+
+private fun FridaInstallProgress.fraction(): Float? = fractionOf(downloadedBytes, totalBytes)
+
+private fun ApkAnalysisInstallProgress.fraction(): Float? = fractionOf(downloadedBytes, totalBytes)
+
+/**
+ * profile 安装的进度换算：
+ * - 下载阶段：按字节算百分比（radare2 的 8MB deb 能真实走完 0→100%）
+ * - 安装阶段：按「第几步 / 共几步」算，因为 pip 不吐可解析的字节进度
+ */
+private fun PackageProfileInstallProgress.fraction(): Float? = when (stage) {
+    PackageProfileInstallStage.DOWNLOADING -> fractionOf(downloadedBytes, totalBytes)
+    PackageProfileInstallStage.INSTALLING ->
+        if (stepTotal > 0) (stepIndex.toFloat() / stepTotal.toFloat()).coerceIn(0f, 1f) else null
+    PackageProfileInstallStage.VERIFYING -> 1f
+    PackageProfileInstallStage.COMPLETE -> 1f
+    PackageProfileInstallStage.CHECKING -> null
+}
+
 private fun AlpineInstallProgress.summary(context: Context): String {
     val stageName = stage.displayName(context)
     if (stage != AlpineInstallStage.DOWNLOADING || totalBytes <= 0L) {
@@ -668,22 +714,34 @@ private fun DebianInstallProgress.summary(context: Context): String {
     return context.getString(R.string.linux_progress_percent, stageName, percent)
 }
 
-private fun PackageProfileInstallProgress.summary(context: Context, profileTitle: String): String =
-    when (stage) {
+private fun PackageProfileInstallProgress.summary(context: Context, profileTitle: String): String {
+    // 有 item 时优先展示「正在装哪个组件、第几步」，比只说「安装中」有用得多。
+    val stepSuffix = if (stepTotal > 0) " (${stepIndex.coerceAtLeast(1)}/$stepTotal)" else ""
+    return when (stage) {
         PackageProfileInstallStage.CHECKING -> context.getString(R.string.linux_profile_stage_checking)
         PackageProfileInstallStage.DOWNLOADING -> if (totalBytes > 0L) {
             context.getString(
                 R.string.linux_profile_stage_downloading_percent,
-                profileTitle,
+                item ?: profileTitle,
                 (downloadedBytes * 100L / totalBytes).coerceIn(0L, 100L),
             )
         } else {
-            context.getString(R.string.linux_profile_stage_downloading, profileTitle)
+            context.getString(R.string.linux_profile_stage_downloading, item ?: profileTitle)
         }
-        PackageProfileInstallStage.INSTALLING ->
+        PackageProfileInstallStage.INSTALLING -> if (item != null) {
+            context.getString(
+                R.string.linux_profile_stage_installing_item,
+                item,
+                stepSuffix,
+            )
+        } else {
             context.getString(R.string.linux_profile_stage_installing, profileTitle)
+        }
+        PackageProfileInstallStage.VERIFYING ->
+            context.getString(R.string.linux_profile_stage_verifying, profileTitle)
         PackageProfileInstallStage.COMPLETE -> context.getString(R.string.linux_profile_stage_complete)
     }
+}
 
 private fun ApkAnalysisInstallProgress.summary(context: Context): String {
     val stageName = stage.displayName(context)
@@ -741,10 +799,16 @@ private fun PackageProfileInstallResult.toMessage(
     }
     PackageProfileInstallResult.Installed ->
         context.getString(R.string.linux_profile_installed, profileTitle)
-    is PackageProfileInstallResult.Failed -> context.getString(
-        R.string.linux_profile_stage_failed,
-        PackageProfileInstallProgress(stage).summary(context, profileTitle),
-    )
+    is PackageProfileInstallResult.Failed -> {
+        // 失败时把具体原因带出来。用户看到的不能只是一句「安装失败」——
+        // 上一次 RE_LAB 失败，真正的原因（radare2 在 Debian 源里不存在）藏在
+        // 被丢弃的 apt 输出里，用户和我们都只能瞎猜。
+        val prefix = context.getString(
+            R.string.linux_profile_stage_failed,
+            PackageProfileInstallProgress(stage).summary(context, profileTitle),
+        )
+        detail?.takeIf { it.isNotBlank() }?.let { prefix + "\n" + it } ?: prefix
+    }
 }
 
 private fun ApkAnalysisInstallResult.toMessage(context: Context): String = when (this) {

@@ -24,6 +24,7 @@ import io.github.mangi.eta.ui.components.EtaWindowSpinnerPreference
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.InfiniteProgressIndicator
+import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -37,6 +38,8 @@ internal fun LinuxEnvironmentStatusCard(
     actionText: String?,
     actionEnabled: Boolean,
     onAction: () -> Unit,
+    /** 0f..1f 的真实进度；null 表示没有可量化的进度，只转圈。 */
+    progress: Float? = null,
 ) {
     EtaCard(
         modifier = Modifier
@@ -63,6 +66,14 @@ internal fun LinuxEnvironmentStatusCard(
                     style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.weight(1f),
+                )
+            }
+            // 有真实进度就画条，让用户知道不是在瞎等：下载看字节，安装看步骤。
+            progress?.let { value ->
+                LinearProgressIndicator(
+                    progress = value.coerceIn(0f, 1f),
+                    modifier = Modifier.fillMaxWidth(),
+                    height = 3.dp,
                 )
             }
             message?.let {

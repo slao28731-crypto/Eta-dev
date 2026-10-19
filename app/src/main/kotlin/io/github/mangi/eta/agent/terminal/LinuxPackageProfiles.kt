@@ -1,6 +1,7 @@
 package io.github.mangi.eta.agent.terminal
 
 import android.content.Context
+import android.os.Build
 import io.github.mangi.eta.core.AndroidAgentLogger
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -11,6 +12,7 @@ internal enum class PackageProfileInstallStage {
     CHECKING,
     DOWNLOADING,
     INSTALLING,
+    VERIFYING,
     COMPLETE,
 }
 
@@ -18,6 +20,11 @@ internal data class PackageProfileInstallProgress(
     val stage: PackageProfileInstallStage,
     val downloadedBytes: Long = 0,
     val totalBytes: Long = 0,
+    /** 当前正在装的具体组件名（如 `z3-solver`、`radare2`），用于让进度文案可读。 */
+    val item: String? = null,
+    /** 已完成的分步数 / 总分步数；用于 6 个包依次安装时显示 `3/7`。 */
+    val stepIndex: Int = 0,
+    val stepTotal: Int = 0,
 )
 
 internal sealed interface PackageProfileInstallResult {
@@ -27,13 +34,45 @@ internal sealed interface PackageProfileInstallResult {
     /** 依赖的 profile 尚未安装，按依赖链先装它。 */
     data class DependencyMissing(val profileId: String) : PackageProfileInstallResult
     data object Installed : PackageProfileInstallResult
-    data class Failed(val stage: PackageProfileInstallStage) : PackageProfileInstallResult
+    data class Failed(
+        val stage: PackageProfileInstallStage,
+        /** 失败时的过程输出尾部，直接呈现给用户，避免「只说失败、不说为什么」。 */
+        val detail: String? = null,
+    ) : PackageProfileInstallResult
 }
+
+/**
+ * 一个可选组件安装包的分步计划。
+ *
+ * 为什么要有「步」这一层：RE_LAB 要装 6 个东西，原来把 5 条 pip 塞进一个
+ * setupScript 里跑。一旦某条失败，UI 只能报「安装失败」，既不知道卡在哪，
+ * 也不知道已经成功几个。现在每一步单独一条命令、单独一个标签，
+ * 失败时能直接告诉用户「卡在 apkid，前 2 个已装好」。
+ */
+internal data class LinuxPackageStep(
+    /** 展示给用户的中文/英文短名，例如 `z3-solver`。 */
+    val label: String,
+    val command: String,
+    /** 这一步失败时的提示，讲清楚为什么和怎么办。 */
+    val failureHint: String? = null,
+)
 
 internal data class LinuxPackageSpec(
     val packages: List<String> = emptyList(),
     val managedTool: ManagedLinuxTool? = null,
     val setupScript: String? = null,
+    /** 逐步骤执行的安装计划；`packages` 与 `setupScript` 先跑，本项最后跑。 */
+    val steps: List<LinuxPackageStep> = emptyList(),
+    /**
+     * 需要先用 Kotlin 下载器落到 rootfs `/tmp` 的制品。
+     *
+     * 为什么不把这些下载塞进 shell：`VerifiedArtifactDownloader` 自带字节级进度回调、
+     * sha256 校验和多镜像回退，`curl` 做同样的事要另写一堆解析，而且进度只能靠
+     * `--progress-bar` 的 stderr 猜。交给 Kotlin 侧下载，UI 能拿到真实百分比。
+     *
+     * 参数是设备 ABI 列表（`Build.SUPPORTED_ABIS`），用于按架构挑包。
+     */
+    val artifacts: (abis: List<String>) -> List<VerifiedArtifact> = { emptyList() },
 )
 
 internal data class LinuxPackageProfile(
@@ -120,15 +159,115 @@ internal object LinuxPackageProfiles {
     )
 
     /**
+     * radare2 的 arm64 官方 deb。
+     *
+     * 摘要来自官方 `checksums.txt`（6.2.4 发布资产之一），不是猜的：
+     * `bbf48ee7bd5d8282f65a297dcabd34c9961a500e62d6b036679caab187b32ef1`。
+     * 只提供 arm64：x86_64 设备上 radare2 走 Debian 源里的同架构包也不存在，
+     * 直接返回空列表让上层报「当前架构不支持」，好过装个跑不起来的二进制。
+     */
+    private fun reLabArtifacts(abis: List<String>): List<VerifiedArtifact> {
+        if (abis.none { it == "arm64-v8a" }) return emptyList()
+        val name = "radare2_6.2.4_arm64.deb"
+        val official = "https://github.com/radareorg/radare2/releases/download/6.2.4/$name"
+        return listOf(
+            VerifiedArtifact(
+                id = "radare2-arm64",
+                version = "6.2.4",
+                fileName = name,
+                url = official,
+                sha256 = "bbf48ee7bd5d8282f65a297dcabd34c9961a500e62d6b036679caab187b32ef1",
+                sizeBytes = 8_147_980L,
+                preferredUrls = listOf("https://gh-proxy.com/$official"),
+            ),
+        )
+    }
+
+    /**
+     * pip 把脚本装进 `sysconfig.get_path("scripts")`，在 Eta 的 uv Python 里就是
+     * `/opt/eta/python/cpython-<ver>-linux-<arch>-gnu/bin`，**这个目录不在 PATH 里**。
+     * 所以 `pip install` 明明成功了，`command -v mitmdump` 依然找不到——
+     * 这正是上一次 RE_LAB 看起来「装成功但工具没有」的一半原因。
+     * 这里统一在 `/usr/local/bin` 里建软链，PATH 必定覆盖。
+     */
+    private fun renderCliLinksCommand(names: List<String>): String = buildString {
+        append("eta_bin=$(python3 -c \"import sysconfig; print(sysconfig.get_path('scripts'))\") || exit 78; ")
+        append("[ -d \"$eta_bin\" ] || exit 78; ")
+        for (name in names) {
+            append("[ -e \"$eta_bin/$name\" ] && ln -sf \"$eta_bin/$name\" /usr/local/bin/$name; ")
+        }
+        append("true")
+    }
+
+    /** pip 侧逐包一步。`--break-system-packages` 是 Debian trixie 的 PEP 668 硬要求。 */
+    private val RE_LAB_PIP_STEPS = listOf(
+        LinuxPackageStep("z3-solver", "python3 -m pip install --quiet --break-system-packages --upgrade z3-solver", "z3 装不上时通常是网络问题，重试即可"),
+        LinuxPackageStep("unicorn", "python3 -m pip install --quiet --break-system-packages --upgrade unicorn", "unicorn 装不上时通常是网络问题，重试即可"),
+        LinuxPackageStep("apkid", "python3 -m pip install --quiet --break-system-packages --upgrade apkid", "APKiD 依赖 yara-python-dex，装不上时先确认网络"),
+        LinuxPackageStep("objection", "python3 -m pip install --quiet --break-system-packages --upgrade objection", "objection 需要 frida>=16，请先装好 Frida 工具"),
+        LinuxPackageStep("mitmproxy", "python3 -m pip install --quiet --break-system-packages --upgrade mitmproxy", "mitmproxy 依赖较多，网络慢时耗时较长"),
+        LinuxPackageStep(
+            label = "命令行入口",
+            command = renderCliLinksCommand(
+                listOf("mitmdump", "mitmproxy", "mitmweb", "objection", "apkid", "r2", "radare2"),
+            ),
+            failureHint = "工具已装上但入口没找到，检查 /opt/eta/python 下的 bin 目录是否存在",
+        ),
+        LinuxPackageStep(
+            label = "运行自检",
+            command = "python3 -c 'import z3, unicorn' && r2 -v >/dev/null && " +
+                "python3 -c 'import apkid' && command -v mitmdump && command -v objection",
+            failureHint = "组件已装但跑不起来，多为动态库缺失",
+        ),
+    )
+
+    /**
+     * Debian 侧：先 dpkg 装已下载的 radare2，再逐个 pip。
+     *
+     * `dpkg -i` 不处理依赖，但 radare2 的 control 里 `Depends` 只有 `libc6`，
+     * 基础环境必然已有，所以不会留半配置状态。装完立刻 `r2 -v` 验证，
+     * 因为「dpkg 说成功」和「二进制真能跑」是两件事（缺动态库时前者照样返回 0）。
+     *
+     * 注意：本项必须在 [RE_LAB_PIP_STEPS] **之后**声明，Kotlin object 属性按声明
+     * 顺序初始化，否则拿到的是 null（P081 同一类错误）。
+     */
+    private val RE_LAB_DEBIAN_STEPS = listOf(
+        LinuxPackageStep(
+            label = "radare2",
+            command = "dpkg -i /tmp/radare2_6.2.4_arm64.deb && r2 -v >/dev/null",
+            failureHint = "radare2 安装失败。可用空间不足时先清理，或稍后重试",
+        ),
+    ) + RE_LAB_PIP_STEPS
+
+    /** angr 一步装、一步 import 验证。只装不 import 会漏掉 pyvex 加载失败。 */
+    private val ANGR_STEPS = listOf(
+        LinuxPackageStep(
+            label = "angr",
+            command = "python3 -m pip install --quiet --break-system-packages --upgrade angr",
+            failureHint = "angr 依赖树很大，网络慢时需要几分钟；空间不足 900MB 会失败",
+        ),
+        LinuxPackageStep(
+            label = "运行自检",
+            command = "python3 -c 'import angr; print(angr.__version__)'",
+            failureHint = "angr 装上了但 import 失败，通常是 pyvex 编译扩展加载不了",
+        ),
+    )
+
+    /**
      * 逆向分析工具组：z3 约束求解、unicorn 片段仿真、APKiD 判壳、
      * objection 一键 unpinning、mitmproxy 抓包、radare2 替代 IDA 做 so 静态分析。
      *
-     * 为什么 radare2 走 apt 而不是 Releases：官方 Releases 的 assets 只有
-     * Windows zip / iOS sdk / macOS / x86_64，**没有 linux-arm64**（查过 6.2.4）。
-     * Debian trixie 源里有编好的 aarch64 包，这才是能用的路。
+     * **radare2 的来源必须说清楚**（这里踩过一次真实的坑）：
+     * r2 的 GitHub Releases 里确实有 `radare2_6.2.4_arm64.deb`，
+     * 但 **Debian trixie 的 main 源里根本没有 radare2 这个包**——
+     * `apt-cache policy radare2` 的 Candidate 是 `(none)`，`apt-cache search radare`
+     * 一个字都不返回。上一版把 `radare2` 写进 `packages` 走 `eta-apt install`，
+     * 结果 apt 直接报 `Package 'radare2' has no installation candidate`，
+     * **整条 profile 在第一步就失败，后面 5 个 pip 包一个都没装**。
+     * 现在改成：Kotlin 侧用 VerifiedArtifactDownloader 下官方 deb（带 sha256 校验），
+     * 落到 rootfs 的 `/tmp`，再用 `dpkg -i` 装。
      *
-     * 为什么全装完再写 marker：pip 分多条命令，任何一条失败都要整体失败，
-     * 否则用户看到「已装好」但少一半工具。
+     * 每个组件单独一步，是为了失败时能定位到具体哪个包，而不是笼统的「安装失败」。
      */
     val RE_LAB = LinuxPackageProfile(
         id = "re-lab",
@@ -137,12 +276,14 @@ internal object LinuxPackageProfiles {
         dependsOn = PYTHON,
         specs = mapOf(
             LinuxDistribution.ALPINE to LinuxPackageSpec(
+                // Alpine community 源里 radare2 是真实存在的（v3.24 aarch64, 6.1.6-r0），
+                // 与 Debian 的处境不同，这边继续走 apk。
                 packages = listOf("radare2"),
-                setupScript = RE_LAB_PIP_SCRIPT,
+                steps = RE_LAB_PIP_STEPS,
             ),
             LinuxDistribution.DEBIAN to LinuxPackageSpec(
-                packages = listOf("radare2"),
-                setupScript = RE_LAB_PIP_SCRIPT,
+                artifacts = ::reLabArtifacts,
+                steps = RE_LAB_DEBIAN_STEPS,
             ),
         ),
     )
@@ -158,46 +299,10 @@ internal object LinuxPackageProfiles {
         revision = AlpineEnvironmentPaths.ANGR_REVISION,
         dependsOn = PYTHON,
         specs = mapOf(
-            LinuxDistribution.ALPINE to LinuxPackageSpec(setupScript = ANGR_PIP_SCRIPT),
-            LinuxDistribution.DEBIAN to LinuxPackageSpec(setupScript = ANGR_PIP_SCRIPT),
+            LinuxDistribution.ALPINE to LinuxPackageSpec(steps = ANGR_STEPS),
+            LinuxDistribution.DEBIAN to LinuxPackageSpec(steps = ANGR_STEPS),
         ),
     )
-
-    /**
-     * pip 装一组工具，每条都单独判失败。
-     *
-     * 几个必须先说清的约束：
-     * - `--break-system-packages`：Debian trixie 走 PEP 668，不带必失败
-     * - 不钉 z3 版本：angr 会自己钉 `z3-solver==5.1.0.0`，这里钉了反而打架
-     * - objection 依赖 `frida>=16`，我们已有 17.24.2，pip 会复用不会降级
-     * - mitmproxy 只要 CLI，不需要它的 Web UI 依赖，所以单独装 mitmproxy
-     * - 每条 `|| exit <code>` 让失败能定位到具体是哪个包
-     */
-    private const val RE_LAB_PIP_SCRIPT =
-        "pip_install() { python3 -m pip install --quiet --break-system-packages --upgrade \"\$@\"; }; " +
-            "pip_install z3-solver || exit 61; " +
-            "pip_install unicorn || exit 62; " +
-            "pip_install apkid || exit 63; " +
-            "pip_install objection || exit 64; " +
-            "pip_install mitmproxy || exit 65; " +
-            // 逐个探活，缺一个都不算装好
-            "command -v r2 >/dev/null 2>&1 || exit 71; " +
-            "command -v radare2 >/dev/null 2>&1 || exit 72; " +
-            "command -v mitmdump >/dev/null 2>&1 || exit 73; " +
-            "command -v objection >/dev/null 2>&1 || exit 74; " +
-            "command -v apkid >/dev/null 2>&1 || exit 75; " +
-            "python3 -c 'import z3' || exit 76; " +
-            "python3 -c 'import unicorn' || exit 77; " +
-            "echo RE_LAB_OK"
-
-    /**
-     * angr 单独一条：它的依赖树很大，失败点往往在编译扩展上，
-     * 所以先装 angr 本体，再单独 import 验证（只装不 import 会漏掉 pyvex 加载失败）。
-     */
-    private const val ANGR_PIP_SCRIPT =
-        "python3 -m pip install --quiet --break-system-packages --upgrade angr || exit 61; " +
-            "python3 -c 'import angr; print(angr.__version__)' || exit 62; " +
-            "echo ANGR_OK"
 
     /**
      * 必须放在所有属性之后声明。
@@ -273,16 +378,30 @@ internal class LinuxPackageProfileInstaller(
             if (!installed) {
                 return@withContext PackageProfileInstallResult.Failed(
                     PackageProfileInstallStage.DOWNLOADING,
+                    "托管工具下载或校验失败，请检查网络后重试",
                 )
             }
+        }
+
+        // 1) 先把需要 Kotlin 侧下载的制品落盘。放在 apt/pip 之前，是因为 radare2
+        //    这类包在发行版源里根本不存在，只能靠官方 deb。
+        val artifacts = spec.artifacts(Build.SUPPORTED_ABIS.toList())
+        if (artifacts.isNotEmpty()) {
+            val failure = downloadArtifacts(artifacts, onProgress)
+            if (failure != null) return@withContext failure
         }
 
         val packageHelper = when (distribution) {
             LinuxDistribution.ALPINE -> "/usr/local/bin/eta-apk"
             LinuxDistribution.DEBIAN -> "/usr/local/bin/eta-apt"
         }
-        onProgress(PackageProfileInstallProgress(PackageProfileInstallStage.INSTALLING))
         if (spec.packages.isNotEmpty()) {
+            onProgress(
+                PackageProfileInstallProgress(
+                    stage = PackageProfileInstallStage.INSTALLING,
+                    item = spec.packages.joinToString(" "),
+                ),
+            )
             val installResult = InstallerShellRunner.run(
                 command = "$packageHelper install ${spec.packages.joinToString(" ")}",
                 timeoutSeconds = INSTALL_TIMEOUT_SECONDS,
@@ -292,13 +411,73 @@ internal class LinuxPackageProfileInstaller(
             if (installResult.exitCode != 0) {
                 return@withContext PackageProfileInstallResult.Failed(
                     PackageProfileInstallStage.INSTALLING,
+                    installResult.output.tailDetail("软件源安装 ${spec.packages.joinToString(" ")} 失败"),
                 )
             }
         }
 
+        // 2) setupScript（若有）单独跑一次，保留给只用一段脚本的旧 profile。
+        spec.setupScript?.let { script ->
+            onProgress(PackageProfileInstallProgress(PackageProfileInstallStage.INSTALLING))
+            val scriptResult = InstallerShellRunner.run(
+                command = "set -e\n$script",
+                timeoutSeconds = INSTALL_TIMEOUT_SECONDS,
+                environment = distribution.terminalEnvironment,
+                linuxRootfsPath = rootfs.absolutePath,
+            )
+            if (scriptResult.exitCode != 0) {
+                return@withContext PackageProfileInstallResult.Failed(
+                    PackageProfileInstallStage.INSTALLING,
+                    scriptResult.output.tailDetail("安装脚本失败"),
+                )
+            }
+        }
+
+        // 3) 分步安装。每步单独命令、单独回报，失败能定位到具体包。
+        for ((index, step) in spec.steps.withIndex()) {
+            onProgress(
+                PackageProfileInstallProgress(
+                    stage = PackageProfileInstallStage.INSTALLING,
+                    item = step.label,
+                    stepIndex = index + 1,
+                    stepTotal = spec.steps.size,
+                ),
+            )
+            val stepResult = InstallerShellRunner.run(
+                command = step.command,
+                timeoutSeconds = INSTALL_TIMEOUT_SECONDS,
+                environment = distribution.terminalEnvironment,
+                linuxRootfsPath = rootfs.absolutePath,
+            )
+            AndroidAgentLogger.info(
+                "Package profile action=step distribution=${distribution.wireName} profile=${profile.id} " +
+                    "step=${index + 1}/${spec.steps.size} label=${step.label} " +
+                    "outcome=${if (stepResult.exitCode == 0) "succeeded" else "failed"} " +
+                    "exitCode=${stepResult.exitCode}",
+            )
+            if (stepResult.exitCode != 0) {
+                return@withContext PackageProfileInstallResult.Failed(
+                    PackageProfileInstallStage.INSTALLING,
+                    stepResult.output.tailDetail(
+                        buildString {
+                            append("安装 ${step.label} 失败")
+                            if (index > 0) append("（前 $index 个组件已装好）")
+                            step.failureHint?.let { append("。").append(it) }
+                        },
+                    ),
+                )
+            }
+        }
+
+        // 4) 最后统一写 marker：只有前 3 步都成功才会走到这里。
+        onProgress(PackageProfileInstallProgress(PackageProfileInstallStage.VERIFYING))
+        // 装完把下载的制品删掉：radare2 的 deb 有 8MB，留在 rootfs/tmp 里
+        // 会一直占着用户空间，而它已经解包到 /usr 了，没有保留价值。
+        if (artifacts.isNotEmpty()) {
+            artifacts.forEach { artifact -> File(File(rootfs, "tmp"), artifact.fileName).delete() }
+        }
         val activateCommand = buildString {
             append("set -e\n")
-            spec.setupScript?.let { script -> append(script).append('\n') }
             if (profile == LinuxPackageProfiles.KIMI) append("kimi --version >/dev/null\nkimi web --help >/dev/null\n")
             append("cat > /").append(profile.markerName).append(" <<'ETA_PROFILE_EOF'\n")
             append("profile=").append(profile.revision).append('\n')
@@ -317,15 +496,88 @@ internal class LinuxPackageProfileInstaller(
                 "exitCode=${result.exitCode} outputChars=${result.output.length}",
         )
         if (result.exitCode != 0) {
-            return@withContext PackageProfileInstallResult.Failed(PackageProfileInstallStage.INSTALLING)
+            return@withContext PackageProfileInstallResult.Failed(
+                PackageProfileInstallStage.VERIFYING,
+                result.output.tailDetail("写入完成标记失败"),
+            )
         }
 
         onProgress(PackageProfileInstallProgress(PackageProfileInstallStage.COMPLETE))
         PackageProfileInstallResult.Installed
     }
 
+    /**
+     * 把 [artifacts] 逐个下载到 rootfs 的 `/tmp` 下，并回报字节级进度。
+     *
+     * 为什么落到 `/tmp`：安装命令是在 chroot 内跑的，只能看见 rootfs 内的路径。
+     * 下载走 Android 侧的 OkHttp（带 sha256 校验），不要试图在 chroot 里 curl——
+     * 那样拿不到校验，也没法把进度喂给 UI。
+     *
+     * 返回 null 表示全部成功；否则返回带原因的失败结果。
+     */
+    private suspend fun downloadArtifacts(
+        artifacts: List<VerifiedArtifact>,
+        onProgress: suspend (PackageProfileInstallProgress) -> Unit,
+    ): PackageProfileInstallResult.Failed? {
+        val downloader = VerifiedArtifactDownloader()
+        val targetDir = File(rootfs, "tmp").apply { mkdirs() }
+        for ((index, artifact) in artifacts.withIndex()) {
+            val target = File(targetDir, artifact.fileName)
+            onProgress(
+                PackageProfileInstallProgress(
+                    stage = PackageProfileInstallStage.DOWNLOADING,
+                    downloadedBytes = 0,
+                    totalBytes = artifact.sizeBytes,
+                    item = artifact.fileName,
+                    stepIndex = index + 1,
+                    stepTotal = artifacts.size,
+                ),
+            )
+            val ok = try {
+                downloader.download(artifact, target) { downloaded, total ->
+                    onProgress(
+                        PackageProfileInstallProgress(
+                            stage = PackageProfileInstallStage.DOWNLOADING,
+                            downloadedBytes = downloaded,
+                            totalBytes = total,
+                            item = artifact.fileName,
+                            stepIndex = index + 1,
+                            stepTotal = artifacts.size,
+                        ),
+                    )
+                }
+            } catch (cancellation: kotlinx.coroutines.CancellationException) {
+                throw cancellation
+            } catch (throwable: Throwable) {
+                false
+            }
+            if (!ok) {
+                target.delete()
+                return PackageProfileInstallResult.Failed(
+                    PackageProfileInstallStage.DOWNLOADING,
+                    "下载 ${artifact.fileName} 失败（镜像与官方地址都未通过校验），请检查网络后重试",
+                )
+            }
+        }
+        return null
+    }
+
     companion object {
         private const val INSTALL_TIMEOUT_SECONDS = 600L
         private val installMutex = Mutex()
     }
+}
+
+/**
+ * 取输出末尾若干行作为失败原因。
+ *
+ * 安装类命令的报错几乎都在末尾（apt 是 `E: ...`，pip 是最后几行 traceback），
+ * 前面全是进度噪声。截末尾既省消息长度，也正好是用户最需要看的那段。
+ */
+private fun String.tailDetail(fallback: String, maxLines: Int = 4, maxChars: Int = 320): String {
+    val trimmed = trim()
+    if (trimmed.isEmpty()) return fallback
+    val tail = trimmed.lines().filter { it.isNotBlank() }.takeLast(maxLines).joinToString("\n")
+    val clipped = if (tail.length > maxChars) tail.take(maxChars) + "…" else tail
+    return "$fallback：\n$clipped"
 }

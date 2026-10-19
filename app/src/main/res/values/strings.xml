@@ -1035,6 +1035,7 @@
   <string name="linux_profile_stage_downloading">Downloading %1$s</string>
   <string name="linux_profile_stage_downloading_percent">Downloading %1$s · %2$d%%</string>
   <string name="linux_profile_stage_installing">Installing %1$s</string>
+  <string name="linux_profile_stage_installing_item">Installing %1$s%2$s</string>
   <string name="linux_profile_stage_verifying">Verifying %1$s</string>
   <string name="linux_profile_stage_complete">Installation complete</string>
   <string name="linux_profile_stage_failed">%1$s failed. Try again later</string>
