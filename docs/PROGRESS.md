@@ -41,8 +41,9 @@
 - [x] **2026-10-19** Agent 自助管理 MCP（第三轮，用户真机验收通过）：新增 6 个工具 `mcp_list_servers` / `mcp_add_server` / `mcp_remove_server` / `mcp_refresh_server` / `mcp_set_server_enabled` / `mcp_set_tool_enabled`，全部常开（`mcpManagement = true`）。改动 11 个文件：新建 `AgentMcpToolCatalog`（Schema）与 `McpManagementToolCatalogTest`（契约测试）；`AgentToolCatalog` 加开关；`AgentModelClient` 打开开关；`AgentLocalTools` 6 个实现；`AgentToolRequirements` 注册；`McpServerManager` 加 `enableAllDiscoveredTools`；`McpRunContext` 把工具名公式提取为唯一实现；`AgentSensitiveToolPolicy` 豁免管理工具脱敏；两个既有测试补开关
 - [x] **2026-10-19** 排掉 MCP 功能的两个隐藏坑：① `discover()` 的 `intersect` 会让新服务器的 `enabledToolNames` 为空集，`activeTools` 变成 0 个，加完等于白加 —— 用 `enableAllDiscoveredTools` 只在 Agent 路径启用全部工具；② `AgentSensitiveToolPolicy` 的 `mcp_` 前缀把管理工具也判成敏感，结果被 transcript 替换成「敏感工具未写入持久会话」，连带 `modelTools`（下一轮要调的工具名）一起丢 —— 加 `mcpManagementTools` 精确白名单豁免，远端 MCP 工具仍照旧敏感
 
+- [x] **2026-10-19** 修 P082 单轮 MCP 工具额度截断：`MAX_RUN_TOOLS` 64 → 256（全局共享，多服务累加）、`MAX_DISCOVERED_TOOLS` 128 → 512、`MAX_LIST_PAGES` 8 → 16。把 `server.activeTools.forEach { if (size>=MAX) return@forEach }` 这种「假截断（只跳过当前元素，外层空转）」换成 `take(remaining)` 显式截断。目录内单工具描述截到 400 字（数据库仍存 2000）。`mcp_add_server` 改为返回 `registeredToolCount` + `unavailableModelTools`，不再谎报「全部启用」；`mcp_list_servers` 补 `enabledToolTotal` / `runToolLimit` / `overLimit` + 超额精简提示。新增 2 条契约测试
+- [x] **2026-10-19** 调研 Operit（`AAswordman/Operit`）的 MCP 处理方式作参照：其 `MCPPackage.toToolPackage()` 把工具直接 `map` 成 `ToolPackage`，`listTools()` 无数量上限，靠「包制」（模型先选包再选工具）从结构上避免平铺目录爆炸。Eta 是平铺架构，照搬需重做工具层，因此本轮只放宽额度 + 对齐文案
 ## 进行中
-
 _暂无_
 
 ## 待办

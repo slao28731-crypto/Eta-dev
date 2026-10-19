@@ -84,7 +84,17 @@
 2. **工具名公式单一定义**：`mcpModelToolName()` 在 `McpRunContext.kt`，`AgentLocalTools` 只调用不复制。格式 `mcp_<serverId前8位>_<工具名>_<sha256前8位>`。
 3. **管理工具需豁免脱敏**：`AgentSensitiveToolPolicy.mcpManagementTools` 白名单，否则结果被 transcript 替换，`modelTools` 一起丢。
 
-工具在 run 开始时一次性加载（`McpRunSnapshot.load()`），**加完下一轮才可用**。
+工具在 run 开始时一次性加载（`McpRunSnapshot.load()`），**加完下一轮才可用**（同一对话的下一条消息即可，无需重启 App）。
+
+四条额度约束（改任何一个都要连带检查其余）：
+
+1. **`MAX_RUN_TOOLS = 256`**（`McpRunContext.kt`）：单轮进目录的 MCP 工具**总数，所有服务共享**，不是每服务 256。多个服务按 `sort_order` 依次占用额度，前面占满后面一个也进不来。
+2. **`MAX_DISCOVERED_TOOLS = 512`**（`McpHttpClient.kt`）：tools/list 一次最多记录多少。**必须 ≥ `MAX_RUN_TOOLS`**，否则工具连数据库都进不来。
+3. **`MAX_LIST_PAGES = 16`**：分页翻页上限，与上一条配套。
+4. **`MAX_CATALOG_DESCRIPTION_CHARS = 400`**：拼进模型目录时的描述截断。数据库仍保留完整 2000 字供设置页展示。
+
+截断必须显式：`load()` 用 `take(remaining)` 而不是在 `forEach` 里 `return@forEach`（后者只跳过当前元素、外层继续空转，是"看起来有上限、实际静默丢数据"的来源）。
+对外要如实报数：`mcp_add_server` 返回 `registeredToolCount` + `unavailableModelTools`，`mcp_list_servers` 返回 `enabledToolTotal` / `runToolLimit` / `overLimit`。**模型只能调用 `modelTools` 里出现过的名字**，谎报"全部启用"会让它去喊不存在的工具名（`TOOL_NOT_AVAILABLE`）。
 
 ### agent/browser/ — 内嵌浏览器
 

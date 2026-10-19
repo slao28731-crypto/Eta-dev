@@ -35,10 +35,12 @@ Agent 自己就能添加 MCP 服务器，不需要用户进设置页。6 个工�
 
 ### 已知限制
 
-- 加完当轮用不了：`McpRunSnapshot` 在 run 开始时一次性加载，工具下一轮才出现。
+- **单轮 MCP 工具总额度 256（全局共享，非每服务）**：超过部分下一轮不会进目录，调用返回 `TOOL_NOT_AVAILABLE`。`mcp_add_server` / `mcp_list_servers` 会如实报出 `registeredToolCount` / `overLimit`，模型可自行用 `mcp_set_tool_enabled` 精简。
+- **发现上限 512、翻页上限 16**：`MAX_DISCOVERED_TOOLS` 必须 ≥ `MAX_RUN_TOOLS`，否则工具连数据库都进不来。改上限时两个常量要一起动。
+- 加完当轮用不了：`McpRunSnapshot` 在 run 开始时一次性加载，工具下一轮才出现（同一对话的下一条消息即可，无需重启 App）。
 - token 会以明文进对话历史（工具参数的既有行为，改不了），只在返回值里打码。
 
-详细契约见 `McpManagementToolCatalogTest`（4 个用例锁死开关/必填项/上限/脱敏豁免）。
+详细契约见 `McpManagementToolCatalogTest`（4 个用例锁死开关/必填项/上限/脱敏豁免）、`McpRunContextTest`（额度常量关系 + 目录描述截断）。
 
 ## 顶栏图标（用户已定稿）
 
@@ -71,9 +73,12 @@ Agent 自己就能添加 MCP 服务器，不需要用户进设置页。6 个工�
 
 ## 下一步（最重要）
 
-**三轮二改已全部验收通过（2026-10-19）。当前无进行中任务，等下一个需求。**
+**三轮二改已全部验收通过（2026-10-19），另有第四轮 MCP 额度修复待用户真机验证。当前无进行中任务。**
 
 第三轮验收（MCP 自助管理）用户原话：「测试成功，验收通过。」
+
+第四轮（P082 额度修复，commit `b4de086`）已推送，**等用户装包实测**：验证「51 + 49 两个服务共 100 个工具时，新服务那 49 个全部可调」。若仍报 `TOOL_NOT_AVAILABLE`，下一步查 `registeredToolCount` 是否与预期一致（`mcp_list_servers` 会直接返回该字段）。
+**已知未验证项**：本次改动只过了 `:app:compileDebugKotlin`，单元测试因 PRoot 下 AAPT2 daemon 起不来（`processDebugResources` 失败）没能执行，需在真机或正常构建环境补跑 `McpRunContextTest`。
 
 ### 已完成并验收的完整清单
 
@@ -207,4 +212,4 @@ git push origin clean:main
 
 ---
 
-_最后更新：2026-10-19 · 第三轮验收通过（Agent 自助管理 MCP：6 个工具，commit 4378e83）_
+_最后更新：2026-10-19_

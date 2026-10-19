@@ -221,6 +221,24 @@ call.optJSONObject("function")?.put("arguments", JSONObject().put("redacted", tr
 
 ---
 
+### P082 · 两个 MCP 服务一装，后一个的工具大半"不存在"，重启 App 也没用
+**现象**：用户先装一个 51 工具的服务，再装一个 49 工具的服务。Agent 回复"已启用全部工具"，但下一条消息调用新服务时，一部分报 `TOOL_NOT_AVAILABLE`（工具未在本轮能力目录中提供），另一部分报 `MCP_CALL_FAILED`。用户关闭 App 重开、换新对话，结果完全一样。
+**根因**：三层叠加。
+1. `McpRunSnapshot.MAX_RUN_TOOLS = 64`，**这个额度是所有已启用服务共享的**。51 + 49 = 100，第二个服务只分到 13 个，后面 36 个被丢弃。
+2. 丢弃发生在 `server.activeTools.forEach { if (size >= MAX) return@forEach }`。**`return@forEach` 只跳过当前元素，外层循环继续空转**——既不 `break` 也不报错，超额工具被静默吃掉。
+3. `mcp_add_server` 的 `note` 写死"已保存并启用全部工具"，模型信了这句话，照着 `modelTools` 里的名字调用，被裁掉的自然失败。
+`TOOL_NOT_AVAILABLE` 来自 `AgentLoop.executeTool()` 的 `toolCall.name !in availableToolNames` 前置检查；`MCP_CALL_FAILED` 来自 `McpToolExecutor` 的异常兜底——两者同轮出现，正说明"目录里有一部分、缺一部分"。
+**解法**：
+- `MAX_RUN_TOOLS` 64 → 256；`MAX_DISCOVERED_TOOLS` 128 → 512（发现上限必须 ≥ 运行上限，否则工具连库都进不来）；`MAX_LIST_PAGES` 8 → 16 配套翻页。
+- 用 `take(remaining)` 显式截断，语义变成"我知道我在丢，丢多少可算"。
+- 目录里单工具描述截到 400 字（数据库保留 2000），100 个工具能省掉大半 token。
+- `mcp_add_server` 返回 `registeredToolCount` + `unavailableModelTools`，把"承诺"对齐到"实际"。
+- `mcp_list_servers` 返回 `enabledToolTotal` / `runToolLimit` / `overLimit`，超额时附精简建议。
+**教训**：**「上限」这件事必须同时回答三个问题：额度是全局的还是每实例的、超了之后是报错还是静默丢弃、谁负责把这个事实告诉调用方**。这次三个都没答，于是出现了"模型以为全都能用、用户以为服务坏了、重启以为能修好"的三方误判。另外 `forEach` 里做早退判断时要意识到它是 lambda，`return@forEach` 永远不是 `break`——想截断就用 `take` 或 `for` + `break`。
+**附**：对比 Operit（`AAswordman/Operit`）的做法——它的 `MCPPackage.toToolPackage()` 直接把工具 `map` 成 `ToolPackage`，`listTools()` 也不设上限；它靠"包制"让模型先选包再选工具，从结构上避免了平铺目录爆炸。Eta 是平铺架构，照搬等于重做工具层，所以先放宽额度 + 对齐文案。
+
+---
+
 ## 文档 / 图谱
 
 ### P060 · `graphify extract` 扫不到文件
