@@ -29,7 +29,7 @@ internal fun AgentHomeScreen(
 ) {
     key(chatConversationCompositionKey(conversationKey)) {
         CompositionLocalProvider(LocalRoleplayChat provides state.roleplayChatUi()) {
-        AgentChatBody(
+            AgentChatBody(
             messages = state.messages,
             modelPickerState = modelPickerState,
             isCompacting = state.isCompacting,
@@ -40,6 +40,12 @@ internal fun AgentHomeScreen(
             pendingImages = state.pendingImages,
             pendingFileReferences = state.pendingFileReferences,
             messageEdit = state.messageEdit,
+            queuedMessages = state.queuedMessages,
+            queueExpanded = state.queueExpanded,
+            onQueueExpandedChange = { onAction(AgentHomeAction.SetQueueExpanded(it)) },
+            onRemoveQueuedMessage = { id -> onAction(AgentHomeAction.RemoveQueuedMessage(id)) },
+            onSendQueuedMessageNow = { id -> onAction(AgentHomeAction.SendQueuedMessageNow(id)) },
+            onQueueMessage = { text -> onAction(AgentHomeAction.QueueMessage(text)) },
             onReasoningEffortChange = { onAction(AgentHomeAction.ReasoningEffortChanged(it)) },
             onCompactContext = { onAction(AgentHomeAction.CompactContext) },
             canCompactContext = state.canCompactContext,

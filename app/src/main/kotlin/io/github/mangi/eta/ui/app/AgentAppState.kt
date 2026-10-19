@@ -58,6 +58,7 @@ import io.github.mangi.eta.ui.model.ConversationSummaryUi
 import io.github.mangi.eta.ui.model.MessageEditUiState
 import io.github.mangi.eta.ui.model.PendingFileReferenceUi
 import io.github.mangi.eta.ui.model.PendingImageUi
+import io.github.mangi.eta.ui.model.QueuedMessageUi
 import io.github.mangi.eta.ui.model.SystemNoticeCode
 import io.github.mangi.eta.ui.model.SystemNoticeMessageUi
 import io.github.mangi.eta.ui.model.ThinkingMessageUi
@@ -816,16 +817,21 @@ internal class AgentAppState(
             SystemNoticeCode.Interrupted -> R.string.system_notice_interrupted
         },
     )
-
     fun sendCurrentMessage(submittedText: String? = null) {
         if (homeState.isCompacting) return
         val prompt = (submittedText ?: homeState.input).trim()
         val pendingImages = homeState.pendingImages
         val pendingFileReferences = homeState.pendingFileReferences
         if (
-            (prompt.isBlank() && pendingImages.isEmpty() && pendingFileReferences.isEmpty()) ||
-            homeState.isStreaming
+            (prompt.isBlank() && pendingImages.isEmpty() && pendingFileReferences.isEmpty())
         ) {
+            return
+        }
+        // 运行中发送改为排队，不打断当前 run（对齐 Operit 的 PendingMessageQueue 行为）。
+        // 图片与文件引用不参与排队：那条路径要经 AgentRuntimeImageTransfer，
+        // 会和运行中的图片摄取管道抢资源，等打断式插话做完再支持。
+        if (homeState.isStreaming) {
+            enqueueQueuedMessage(prompt)
             return
         }
         homeState.messageEdit?.takeIf { it.preserveFollowingMessages }?.let { edit ->
@@ -925,6 +931,99 @@ internal class AgentAppState(
             ),
             reasoningEffort = homeState.reasoningEffort,
         )
+    }
+
+    /**
+     * 运行中把草稿排进待发送队列。
+     *
+     * 不打断当前 run：整条链只动 UI 侧状态，是否/何时发出由 run 结束时决定。
+     * 这也是唯一不碰序列化格式的做法——队列只活在内存（见 P094）。
+     */
+    fun enqueueQueuedMessage(text: String) {
+        val trimmed = text.trim()
+        if (trimmed.isBlank()) return
+        // 角色卡对话的中途插话要另走 roleplay 投影，第一版保持在普通对话。
+        if (homeState.roleplay != null) return
+        // 附件不参与排队：这条路径只搬运纯文本，带了附件会在上面被静默丢弃。
+        if (homeState.pendingImages.isNotEmpty() || homeState.pendingFileReferences.isNotEmpty()) return
+        updateCurrentConversation(
+            homeState.copy(
+                queuedMessages = homeState.queuedMessages + QueuedMessageUi(
+                    id = "queued-${UUID.randomUUID()}",
+                    text = trimmed,
+                ),
+                queueExpanded = true,
+                // 入队即清空草稿：否则用户按两次会排出两条一样的。
+                input = "",
+            )
+        )
+    }
+
+    fun removeQueuedMessage(id: String) {
+        if (homeState.queuedMessages.none { it.id == id }) return
+        updateCurrentConversation(
+            homeState.copy(queuedMessages = homeState.queuedMessages.filterNot { it.id == id })
+        )
+    }
+
+    fun setQueueExpanded(expanded: Boolean) {
+        if (homeState.queueExpanded == expanded) return
+        updateCurrentConversation(homeState.copy(queueExpanded = expanded))
+    }
+
+    /**
+     * 立刻发出某条排队消息：先取消当前 run，再把它作为新的一轮提交。
+     *
+     * 取消是必须的——`AgentRuntimeService.startRun()` 第一件事就是
+     * `activeSession?.controller?.cancel()`，不先停也会被顶掉，
+     * 但那样新的 prompt 会和旧 run 的收尾事件交叉，界面会闪两次终态。
+     */
+    fun sendQueuedMessageNow(id: String) {
+        val target = homeState.queuedMessages.firstOrNull { it.id == id } ?: return
+        // 取消旧 run 必然触发 applyRunResult → drainQueuedMessageAfterRun()。
+        // 那条路径会把队首**另一条**消息也发出去，与这里的补发撞车、互相顶掉。
+        // 所以在真的取消之前先占位，让本轮自动出队跳过。
+        val cancelling = currentRunId != null
+        if (cancelling) suppressAutoDrainOnce = true
+        currentRunId?.let { runId ->
+            if (stopRequestedRunIds.add(runId)) {
+                scope.launch(Dispatchers.IO) {
+                    AgentRuntimeClient(appContext, AndroidAgentLogger).cancelRun(runId)
+                }
+            }
+        }
+        removeQueuedMessage(id)
+        // 取消是异步的：等流式标记落下再提交，避免 sendCurrentMessage 又看到 isStreaming 而排回队列。
+        scope.launch {
+            // 加上限：cancel 若因故没回落到终态，不能把这条消息永远卡在协程里。
+            var waited = 0L
+            while (homeState.isStreaming && waited < QUEUE_DRAIN_MAX_WAIT_MS) {
+                delay(QUEUE_DRAIN_POLL_MS)
+                waited += QUEUE_DRAIN_POLL_MS
+            }
+            if (suppressAutoDrainOnce) suppressAutoDrainOnce = false
+            sendCurrentMessage(target.text)
+        }
+    }
+
+    /**
+     * run 正常或异常结束后调用：把队首那条自动发出去。
+     *
+     * 只在「当前会话」上做，用户切走了就等他切回来再发——
+     * 后台偷偷起 run 会让用户不知道模型为什么突然开始烧额度。
+     */
+    private fun drainQueuedMessageAfterRun() {
+        // 「立即发送」路径已经自己取消并补发，这里必须让路，否则两条消息会互相顶掉。
+        if (suppressAutoDrainOnce) {
+            suppressAutoDrainOnce = false
+            return
+        }
+        if (homeState.isStreaming) return
+        if (homeState.roleplay != null) return
+        if (selectedConversationId?.isReadOnlyExternalArchiveConversation() == true) return
+        val next = homeState.queuedMessages.firstOrNull() ?: return
+        removeQueuedMessage(next.id)
+        sendCurrentMessage(next.text)
     }
 
     fun beginMessageEdit(messageId: String) {
@@ -1459,6 +1558,12 @@ internal class AgentAppState(
 
     private val stopRequestedRunIds = mutableSetOf<String>()
 
+    /**
+     * 一次性让路标记：由「立即发送排队消息」在取消旧 run 前置位，
+     * 供 [drainQueuedMessageAfterRun] 消费一次后复位。
+     */
+    private var suppressAutoDrainOnce = false
+
     fun stopCurrentRun() {
         val runId = currentRunId ?: return
         if (!stopRequestedRunIds.add(runId)) return
@@ -1620,6 +1725,9 @@ internal class AgentAppState(
                 null
             }
         )
+        // 本轮跑完，把队首那条自动发出去。必须放在 persistConversations 之后：
+        // drain 会立刻起新 run 并再次写盘，先落盘保证用户消息有 write-ahead 记录。
+        drainQueuedMessageAfterRun()
     }
 
     private fun updateRunTrace(
@@ -1851,6 +1959,10 @@ internal class AgentAppState(
         const val SYNTHETIC_STATUS_STOPPED = "eta_status:stopped"
         // 数据状态以较粗粒度发布，文字显现由独立的帧时钟连续推进。
         const val STREAM_UI_UPDATE_INTERVAL_MS = 80L
+        /** 取消后等待 isStreaming 落下的轮询间隔，用于「立刻发送排队消息」。 */
+        const val QUEUE_DRAIN_POLL_MS = 40L
+        /** 「立即发送」等待旧 run 终态的上限；超时后强制提交，避免消息永久卡住。 */
+        const val QUEUE_DRAIN_MAX_WAIT_MS = 8_000L
 
         fun emptyChatState(thinkingEnabled: Boolean): AgentChatHomeUiState =
             AgentChatHomeUiState(

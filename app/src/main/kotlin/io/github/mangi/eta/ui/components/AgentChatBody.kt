@@ -87,6 +87,7 @@ import io.github.mangi.eta.ui.model.AgentModelPickerUiState
 import io.github.mangi.eta.ui.model.MessageEditUiState
 import io.github.mangi.eta.ui.model.PendingFileReferenceUi
 import io.github.mangi.eta.ui.model.PendingImageUi
+import io.github.mangi.eta.ui.model.QueuedMessageUi
 import io.github.mangi.eta.ui.model.ThinkingMessageUi
 import io.github.mangi.eta.ui.model.ToolActivityMessageUi
 import io.github.mangi.eta.ui.model.ToolSummaryMessageUi
@@ -140,6 +141,12 @@ internal fun AgentChatBody(
     pendingImages: List<PendingImageUi>,
     pendingFileReferences: List<PendingFileReferenceUi>,
     messageEdit: MessageEditUiState?,
+    queuedMessages: List<QueuedMessageUi> = emptyList(),
+    queueExpanded: Boolean = true,
+    onQueueExpandedChange: (Boolean) -> Unit = {},
+    onRemoveQueuedMessage: (String) -> Unit = {},
+    onSendQueuedMessageNow: (String) -> Unit = {},
+    onQueueMessage: (String) -> Unit = {},
     onReasoningEffortChange: (ReasoningEffort) -> Unit,
     onCompactContext: () -> Unit,
     canCompactContext: Boolean,
@@ -967,6 +974,16 @@ private fun AgentChatBottomBar(
                 .navigationBarsPadding()
                 .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
         ) {
+            // 待发送面板放在输入框**外面**、上方：用户明确要求不得嵌进输入容器。
+            // 它只在运行中出现，尺寸随条目数变，塞进输入框会把主输入区顶得来回跳。
+            PendingMessageQueuePanel(
+                messages = queuedMessages,
+                expanded = queueExpanded,
+                onExpandedChange = onQueueExpandedChange,
+                onRemove = onRemoveQueuedMessage,
+                onSendNow = onSendQueuedMessageNow,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
             AgentChatInputBar(
                 input = input,
                 modelPickerState = modelPickerState,
@@ -982,6 +999,8 @@ private fun AgentChatBottomBar(
                 editHasLaterTurns = messageEdit?.hasLaterTurns == true,
                 preserveFollowingMessages = messageEdit?.preserveFollowingMessages == true,
                 onSubmit = onSubmit,
+                onQueueSubmit = onQueueMessage,
+                queueCount = queuedMessages.size,
                 onReasoningEffortChange = onReasoningEffortChange,
                 onCompactContext = onCompactContext,
                 canCompactContext = canCompactContext,

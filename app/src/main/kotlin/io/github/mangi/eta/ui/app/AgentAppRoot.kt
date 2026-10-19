@@ -364,6 +364,13 @@ fun AgentAppRoot(
                                 AgentHomeAction.CompactContext -> agentState.compactCurrentContext()
                                 is AgentHomeAction.ModelSelected -> agentState.selectModel(action.modelId)
                                 is AgentHomeAction.SubmitMessage -> { requestExecutionNotifications(); agentState.sendCurrentMessage(action.text) }
+                                is AgentHomeAction.QueueMessage -> agentState.enqueueQueuedMessage(action.text)
+                                is AgentHomeAction.RemoveQueuedMessage -> agentState.removeQueuedMessage(action.id)
+                                is AgentHomeAction.SendQueuedMessageNow -> {
+                                    requestExecutionNotifications()
+                                    agentState.sendQueuedMessageNow(action.id)
+                                }
+                                is AgentHomeAction.SetQueueExpanded -> agentState.setQueueExpanded(action.expanded)
                                 AgentHomeAction.StopRun -> agentState.stopCurrentRun()
                                 is AgentHomeAction.ImageAttached -> agentState.attachImage(action.uri)
                                 is AgentHomeAction.RemoveImage -> agentState.removePendingImage(action.id)

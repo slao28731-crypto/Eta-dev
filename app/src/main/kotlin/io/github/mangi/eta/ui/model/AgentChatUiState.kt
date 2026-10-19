@@ -28,6 +28,12 @@ internal data class AgentChatUiState(
     val roleplayMessages: RoleplayMessageState = RoleplayMessageState(),
     /** 会话最近一次发送使用的本地 Model.id；null 表示尚未绑定，跟随默认模型。 */
     val modelId: String? = null,
+    /**
+     * 运行中排队的待发送消息。只存在于内存，不写数据库：一条排队草稿丢了重打即可，
+     * 不值得为它改 Room schema 或持久化结构（见 P094）。
+     */
+    val queuedMessages: List<QueuedMessageUi> = emptyList(),
+    val queueExpanded: Boolean = true,
 ) {
     val canCompactContext: Boolean get() = !isStreaming && messageEdit == null && history.any {
         !it.contextSummary && (it.role == "assistant" || it.role == "tool")
@@ -46,6 +52,16 @@ data class UserMessageUi(
     val images: List<String> = emptyList(),
     val isEdited: Boolean = false,
 ) : AgentChatMessageUi
+
+/**
+ * 运行中排队的待发送消息。只携带纯文本：排队路径不接管图片/文件引用，
+ * 避免与运行中的图片摄取管道（AgentRuntimeImageTransfer）抢资源。
+ */
+@Immutable
+data class QueuedMessageUi(
+    val id: String,
+    val text: String,
+)
 
 @Immutable
 data class AgentMessageUi(

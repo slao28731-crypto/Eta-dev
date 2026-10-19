@@ -7,6 +7,14 @@ sealed interface AgentHomeAction {
     data class ReasoningEffortChanged(val effort: ReasoningEffort) : AgentHomeAction
     data class ModelSelected(val modelId: String) : AgentHomeAction
     data class SubmitMessage(val text: String) : AgentHomeAction
+    /** 把当前草稿排进待发送队列，不打断正在执行的 run。 */
+    data class QueueMessage(val text: String) : AgentHomeAction
+    /** 从待发送队列移除一条。 */
+    data class RemoveQueuedMessage(val id: String) : AgentHomeAction
+    /** 立刻发出某条排队消息：先取消当前 run，再作为新一轮提交。 */
+    data class SendQueuedMessageNow(val id: String) : AgentHomeAction
+    /** 展开 / 收起待发送面板。 */
+    data class SetQueueExpanded(val expanded: Boolean) : AgentHomeAction
     data object StopRun : AgentHomeAction
     data class ImageAttached(val uri: String) : AgentHomeAction
     data class RemoveImage(val id: String) : AgentHomeAction

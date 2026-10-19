@@ -121,6 +121,10 @@ internal fun AgentChatInputBar(
     canCompactContext: Boolean,
     onModelSelected: (String) -> Unit,
     onSubmit: (String) -> Unit,
+    /** 运行中把草稿排进待发送队列（不打断当前 run）。 */
+    onQueueSubmit: (String) -> Unit = {},
+    /** 当前待发送条数，仅用于文案提示。 */
+    queueCount: Int = 0,
     onStop: () -> Unit,
     onAttachImage: (String) -> Unit,
     onRemoveImage: (String) -> Unit,
@@ -355,12 +359,51 @@ internal fun AgentChatInputBar(
                             onModelSelected = onModelSelected,
                         )
 
+                        // 三态：运行中且有草稿 → 入队；运行中无草稿 → 停止；空闲 → 发送。
+                        // 对齐 Operit 的 showQueueAction / showCancelAction 分派。
+                        val draftText = textFieldState.text.toString()
+                        // 排队只收纯文本：附件要走 AgentRuntimeImageTransfer，运行中会和
+                        // 当前 run 的图片摄取抢管道。带附件时不给入队入口，避免静默丢附件。
+                        val hasTextDraft = draftText.isNotBlank()
+                        val showQueueAction = isStreaming && hasTextDraft &&
+                            pendingImages.isEmpty() && pendingFileReferences.isEmpty() && !isEditingMessage
+                        val showStopAction = isStreaming && !showQueueAction
+                        val sendEnabled = showQueueAction || showStopAction || canSend
+
+                        if (showQueueAction) {
+                            // 运行中还要能停：给停止单独一个键，两个动作各占一位，不用记手势。
+                            IconButton(
+                                onClick = onStop,
+                                minWidth = ChatInputActionSize,
+                                minHeight = ChatInputActionSize,
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(SendButtonVisualSize)
+                                        .clip(CircleShape)
+                                        .background(MiuixTheme.colorScheme.surfaceContainerHigh),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Stop,
+                                        contentDescription = stringResource(R.string.chat_stop),
+                                        modifier = Modifier.size(StopIconSize),
+                                        tint = MiuixTheme.colorScheme.onSurface,
+                                    )
+                                }
+                            }
+                        }
+
                         IconButton(
-                            onClick = if (isStreaming) {
-                                onStop
-                            } else {
-                                {
-                                    if (canSend) {
+                            onClick = {
+                                when {
+                                    showQueueAction -> {
+                                        dictation.cancel()
+                                        textFieldState.clearText()
+                                        onQueueSubmit(draftText)
+                                    }
+                                    showStopAction -> onStop()
+                                    canSend -> {
                                         dictation.cancel()
                                         val submittedText = textFieldState.text.toString()
                                         textFieldState.clearText()
@@ -368,14 +411,15 @@ internal fun AgentChatInputBar(
                                     }
                                 }
                             },
-                            enabled = isStreaming || canSend,
+                            enabled = sendEnabled,
                             minWidth = ChatInputActionSize,
                             minHeight = ChatInputActionSize,
                         ) {
                             // 保留统一的点击区域，仅让可见圆形与相邻操作图标保持同一尺寸。
                             val sendButtonColor by animateColorAsState(
                                 targetValue = when {
-                                    isStreaming -> MiuixTheme.colorScheme.onSurface
+                                    showQueueAction -> MiuixTheme.colorScheme.primary
+                                    showStopAction -> MiuixTheme.colorScheme.onSurface
                                     canSend -> MiuixTheme.colorScheme.primary
                                     else -> MiuixTheme.colorScheme.surfaceContainerHigh
                                 },
@@ -390,7 +434,7 @@ internal fun AgentChatInputBar(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 AnimatedContent(
-                                    targetState = isStreaming,
+                                    targetState = showStopAction,
                                     transitionSpec = {
                                         (fadeIn(tween(130)) + scaleIn(tween(160), initialScale = 0.72f))
                                             .togetherWith(
@@ -407,6 +451,7 @@ internal fun AgentChatInputBar(
                                             Icons.Rounded.ArrowUpward
                                         },
                                         contentDescription = when {
+                                            showQueueAction -> stringResource(R.string.chat_queue_add)
                                             streaming -> stringResource(R.string.chat_stop)
                                             isEditingMessage && preserveFollowingMessages -> stringResource(R.string.chat_save_message)
                                             else -> stringResource(R.string.chat_send)
@@ -415,6 +460,7 @@ internal fun AgentChatInputBar(
                                             if (streaming) StopIconSize else SendIconSize
                                         ),
                                         tint = when {
+                                            showQueueAction -> MiuixTheme.colorScheme.onPrimary
                                             streaming -> MiuixTheme.colorScheme.surface
                                             canSend -> MiuixTheme.colorScheme.onPrimary
                                             else -> MiuixTheme.colorScheme.onSurfaceVariantActions

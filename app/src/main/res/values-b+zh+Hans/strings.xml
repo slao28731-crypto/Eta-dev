@@ -1190,6 +1190,12 @@
   <string name="chat_input_hint">交给 Eta 去完成</string>
   <string name="chat_stop">停止</string>
   <string name="chat_send">发送</string>
+  <string name="chat_queue_title">待发送 %1$d 条</string>
+  <string name="chat_queue_add">排入待发送</string>
+  <string name="chat_queue_send_now">立即发送</string>
+  <string name="chat_queue_remove">删除</string>
+  <string name="chat_queue_expand">展开待发送消息</string>
+  <string name="chat_queue_collapse">收起待发送消息</string>
   <string name="chat_reasoning_effort">思考强度，当前为 %1$s</string>
   <string name="status_unsupported">不支持</string>
   <string name="attachment_image">图片</string>
