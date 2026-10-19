@@ -1,18 +1,18 @@
-feat(chat): 待发送卡片美化（方案 1）+ 角色对话支持插话
+docs: 并发改造影响面清单（docs/CONCURRENT_AGENTS.md）+ P096
 
-视觉返工（用户反馈「美观度不行」）：
-- 根因是嵌套卡片：外层 surfaceContainerHigh 里每条消息又套一层 surface，
-  深色模式下 surface 是纯黑，黑块叠在中灰卡上就是一个个「洞」
-- 改为单一底色 + HorizontalDivider(0.5dp, outline@8%) 分隔，不再套小卡
-- 标题从「待发送 3 条」拆成：6dp 主色状态点 + 「待发送」+ 数字胶囊(primary@18%)
-- 图标按钮 32dp/17dp 改为 30dp/16dp，条目内边距 14dp 起
-- itemsIndexed 替代 items，好在首条前不加分隔线
+用户要求「把影响到的因素写成一份文本放在下载目录，同时在相关文档记录」。
 
-角色对话支持插话：
-- 移除 enqueueQueuedMessage 与 drainQueuedMessageAfterRun 里的
-  roleplay 非空拦截
-- 依据：插话走同一条 sendCurrentMessage 路径，RoleplayConversationReducer.linkRun()
-  会按 journal 的 messageId 给新插入的 UserMessageUi 补 roleplayMessages.links，
-  角色卡的编辑/重新生成能力照常生效，不需要额外处理
+产出：
+- 新增 docs/CONCURRENT_AGENTS.md（361 行，完整影响面清单）
+  同内容也放在 /sdcard/Download/Eta并发改造-受影响功能清单.md
+- PITFALLS 新增 P096：一条对话在跑、另开对话发消息会掐死前一条
+  记录了根因（activeSession 单值 + startRun 首行 cancel）与排查口诀
+- STATE：文档地图加 CONCURRENT_AGENTS.md；下一步改为记录并发改造三项决策
+- PROGRESS：新增「待办：多并发 Agent 改造（方案乙，分 3 批）」
+  并把第十五轮标记为真机验收通过
+- AGENTS.md：文档索引表加 CONCURRENT_AGENTS.md（顺手修回被误删的 PROGRESS 行）
 
-文案：chat_queue_title 去掉 %1$d，数量改由胶囊承载（中英各一条）
+用户已拍板的三项决策（写进文档了）：
+1. 终端工作区共享 /workspace，不按会话隔离
+2. 接受 GUI 操作串行排队（无障碍/浏览器/Frida 物理上只能一个）
+3. 分 3 批做，每批真机验一次

@@ -130,6 +130,46 @@ Wire 序列化跨进程，UI 侧 `mergeSupplements()` 也会插气泡。**整条
 **防护**：附件不进队列（要过 `AgentRuntimeImageTransfer`，会和运行中摄取抢管道），
 所以 `hasTextDraft` 只算纯文字；带附件时按钮退回「停止」，不给入队入口。
 
+### P096 · 一条对话在跑，另开对话发消息会把前一条掐死
+
+**现象**：Agent 在 A 对话里跑任务，切到 B 对话发一条消息，**A 的任务立刻停止**。
+
+**根因（架构层面，不是 bug）**：Runtime 从设计上就是「同一时刻只有一个 agent」。
+
+```kotlin
+// AgentRuntimeService.kt:86
+@Volatile
+private var activeSession: AgentRuntimeSession? = null      // 单值，不是集合
+
+// AgentRuntimeService.kt:369  ← startRun() 的第一行
+activeSession?.controller?.cancel()                        // 开新任务先杀旧任务
+```
+
+UI 侧也不检查「别的会话在跑」：
+
+```kotlin
+// AgentAppState.kt:99
+private var currentRunId: String? = null                   // 单值
+// sendCurrentMessage() 只看 homeState.isStreaming（当前会话的标记）
+// 在 B 对话里它是 false，所以完全放行，直接发起新 run
+```
+
+**触发这条链的最小操作**：
+1. A 对话跑任务 → Service 的 `activeSession` = A 的 session
+2. 切到 B 对话（`homeState` 换成 B，`isStreaming` = false）
+3. 按发送 → `startRun()` 第一行 `cancel()` 掉 A
+
+**要改成并发必须先读 `docs/CONCURRENT_AGENTS.md`**，那里列了完整影响面：
+- Service 20 处 `activeSession` 引用
+- UI 侧 `currentRunId` 单值
+- 无障碍（系统只给一个实例，GUI 只能串行）
+- 终端工作区（`TerminalRuntime` 是 object，共享同一个目录）
+- 浏览器（`AgentBrowserSession` 是 object，单 WebView）
+- Frida（固定端口 8899）
+
+**排查口诀**：看到「一条对话跑完另一条也停了」，先查 `activeSessions.remove` 的位置；
+看到「A 的回复出现在 B 里」，先查 UI 侧 `currentRunId` 是不是还是单值。
+
 ### P095 · Composable 参数要逐层透传：漏一层就是 Unresolved reference
 
 **现象**：给聊天输入栏加了 6 个队列参数，本地 `grep` 看参数明明都在签名里，

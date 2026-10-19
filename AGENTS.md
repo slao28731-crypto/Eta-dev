@@ -298,6 +298,7 @@ Tool Calling 与推理内容的字段也不一样。**不要把三条路径抽�
 | `docs/ARCHITECTURE.md` | 分层、数据流、进程模型、启动流程 | 理解结构 |
 | `docs/MODULES.md` | 逐模块职责、依赖、对外契约 | 改某模块前 |
 | `docs/PITFALLS.md` | 踩坑清单（现象 → 根因 → 解法） | 遇到问题先查 |
+| **`docs/CONCURRENT_AGENTS.md`** | **并发改造影响面清单**（Runtime / 无障碍 / 终端 / 浏览器 / Frida） | **要动这几块之前必读** |
 | `docs/PROGRESS.md` | 完整进度流水与待办 | 查历史 |
 | `docs/CONVENTIONS.md` | 代码风格、构建、发版、依赖管理 | 写代码/发版前 |
 | `docs/adr/` | 架构决策记录 | 想质疑「为什么这么选」 |
