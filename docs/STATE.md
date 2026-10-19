@@ -155,11 +155,12 @@ Agent 自己就能添加 MCP 服务器，不需要用户进设置页。6 个工�
 **第十五轮已完成并编译通过（CI run #60，commit `95348c8`）；卡片美化 + 角色对话插话已验收。**
 **⚠️ 进行中：多并发 Agent 改造（用户要求方案乙）**
 
-**第 1 批已完成并编译通过（CI run #64，commit `6bdd0cdf`），等真机验收。**
+**第 1 批已完成并编译通过（CI run #64，commit `6bdd0cdf`）✅ 真机验收通过**
+**第 2 批已完成并编译通过（CI run #66，commit `658b86f5`），等真机验收。**
 
 用户已拍板三项决策：
 1. **终端工作区共享**同一个 `/workspace`（不按会话隔离）
-2. **GUI 操作接受串行排队**（无障碍/浏览器/Frida 物理上只能一个）
+2. **GUI 操作接受串行排队**（无障碍/浏览器物理上只能一个）
 3. **分 3 批做**，每批真机验一次
 
 **影响面清单**：`docs/CONCURRENT_AGENTS.md`（也放在 `/sdcard/Download/Eta并发改造-受影响功能清单.md`）
@@ -171,16 +172,31 @@ Agent 自己就能添加 MCP 服务器，不需要用户进设置页。6 个工�
 - `AgentAppState`：`currentRunId` 拆成 `observedRunIds` + `latestRunId`，
   新增 `hasActiveRun` / `stopRun(runId)`
 
-**第 1 批验收方法**：
-1. 装 run #64 的产物（`eta-apk-6bdd0cdf…`，34,632,139 字节）
-2. 对话 A 里让 agent 跑一个长命令（如 `sleep 120`）
-3. 切到对话 B，也发一条长命令
-4. **预期：A 不再被掐死，两条都在跑**
-5. 看完 A 的回复 → 切回 A 应能看到它在继续输出
-6. 点 B 的停止 → **只停 B，A 不受影响**
+**第 2 批做了什么（独占资源串行化）**：
+- 新增 `agent/tool/ExclusiveResourceGate.kt`：按资源分组的公平锁
+- `AgentLocalTools.execute()` 的 `when` 包成局部 `dispatch()`，
+  按 `resourceFor(toolName)` 决定加锁；非独占工具直接跑
+- 覆盖：**无障碍**（observe_screen / tap* / long_press* / swipe /
+  scroll* / type_text / input_text / replace_text / clear_text /
+  paste_text / clipboard / press_key / wait_for_* / open_system_panel）、
+  **浏览器**（browser_use）
+- 不串行化：终端 / 文件 / 网络 / 记忆 / skills / MCP /
+  `web_search` `fetch_url`（走 HTTP 不走 WebView）
+- 阻塞等锁而非失败（等超 3s 打日志）
 
-**已知限制（第 2/3 批才做）**：
-- 两个 agent 同时操作界面/浏览器/Frida 会打架（串行化未做）
+**第 2 批验收方法**：
+1. 装 run #66 的产物（`eta-apk-658b86f5…`，34,631,563 字节）
+2. 对话 A 里让 agent 操作界面（如「打开设置，找到显示」）
+3. 同时切到对话 B，也让 agent 操作界面
+4. **预期：两个都正常完成，不会出现「点错位置」或「界面跳来跳去」**
+5. 观察日志应出现 `exclusive resource busy: 无障碍 ... waiting`
+6. 终端类命令仍应完全并发（A 跑 `sleep 60` 时 B 能立刻执行）
+
+**第 2 批刻意不做**：
+- 没做超时失败（等不到锁就等，因为「另一个 run 在点屏幕」是正常状态）
+- Frida 没纳入（它是用户手动点的 UI 按钮，不是 agent 工具）
+
+**已知限制（第 3 批才做）**：
 - 浮层只显示主任务，看不出「还有几个在跑」
 
 

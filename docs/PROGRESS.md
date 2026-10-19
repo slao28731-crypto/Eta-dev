@@ -60,7 +60,22 @@
   - 代码改动：`FridaPaths` 新增 `RUNTIME_DIR` + `runtimeServerFile()`；新增 `stageServer()`（起之前复制 + chmod 755，大小一致时只补权限）；`startServer()` / `detectServerPid()` 改用 runtime 路径并先 `cd`；新增 `purgeStaleServer()` 清掉老版本跑在 filesDir 的残留（**只比 cmdline 第一个 token，整体 contains 会自杀**）；`ensureRunning()` 加 `staleForeign` 判定；`stopServer()` 也能清野生进程
   - 顺带修：中文 `values-b+zh+Hans/strings.xml` 补 7 条 `linux_frida_*` 并同步 `linux_apk_tools_ready/summary`（上一轮只改了英文）；`AgentPromptBuilder` 与 `re-mobile/SKILL.md` 的路径说明全部改成 runtime 目录
   - **已验证**：编译（CI 通过）、`stageServer()` 端到端（点「停止」→「启动」后 attach 成功）、`purgeStaleServer()`（未自伤、未报错）
-- [x] **2026-10-19** 第 1 批并发改造：多 run 会话 + 主任务浮层（CI run #64 绿）⏳ 等真机验收
+- [x] **2026-10-19** 第 2 批并发改造：独占资源串行化（CI run #66 绿）⏳ 等真机验收
+  - **要解决的问题**：第 1 批后多 run 可并发，但无障碍/浏览器物理上只有一个，
+    两个 agent 同时点屏幕会互相踩（A 点确定、B 点取消，谁后下手谁生效）
+  - **做法**：新增 `agent/tool/ExclusiveResourceGate.kt`（按资源分组的公平锁）；
+    `AgentLocalTools.execute()` 的 `when` 包成局部 `dispatch()`，
+    按 `resourceFor(toolName)` 决定是否加锁
+  - **阻塞等锁而非失败**：另一个 run 正在点屏幕是正常状态，失败会让 agent 误判
+    工具坏了。等待超 3s 打 `exclusive resource busy` 日志便于排障
+  - **覆盖**：无障碍 19 个工具 + browser_use
+  - **明确不串**：终端/文件/网络/记忆/skills/MCP（天然并发）；
+    web_search/fetch_url（走 HTTP 不走 WebView）
+  - **纠正三处凭空写的工具名**：`screenshot`（只是 observe_screen 的 space 参数值）、
+    `get_ui_tree` / `find_element`（Eta 里没有）、`frida_*`（Frida 是用户手点的 UI 按钮，
+    不是 agent 工具，不存在并发冲突）
+  - **验证目标**：两个对话同时操作界面不点错；终端类仍完全并发
+- [x] **2026-10-19** 第 1 批并发改造：多 run 会话 + 主任务浮层（CI run #64 绿）✅ 真机验收通过
   - **根因**：`AgentRuntimeService` 只有单个 `activeSession`，`startRun()` 第一行
     `activeSession?.controller?.cancel()` —— 一条对话发消息就掐死另一条（P096）
   - **Service 改法**：删 `activeSession` → `activeSessions: ConcurrentHashMap<runId, Session>`；
