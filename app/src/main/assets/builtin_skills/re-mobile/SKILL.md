@@ -11,9 +11,12 @@ description: Android/iOS 逆向与游戏分析方法论。APK/IPA 拆解、jadx 
 没有 Root 时动态分析整条链都是不通的，硬试只会让用户看到一串必然失败的指令。
 
 ```bash
-# 探活顺序不要颠倒
-command -v frida frida-ps frida-dexdump   # Linux 环境内
-su -c 'id'                                 # 确认 root 真的能拿到
+# 探活必须逐个查，不能写成 `command -v a b c`
+# dash 的 command -v 只处理第一个操作数，bash 会静默跳过缺失项 —— 两种都会给出误导性结果
+for t in frida frida-ps frida-dexdump jadx apktool aapt2 apksigner readelf; do
+  printf '%-14s %s\n' "$t" "$(command -v "$t" 2>/dev/null || echo MISSING)"
+done
+su -c 'id'    # 确认 root 真的能拿到
 ```
 
 | Root 状态 | 能做什么 | 不能做什么 |
@@ -47,10 +50,11 @@ su -c 'id'                                 # 确认 root 真的能拿到
 **动手前必须先探活**，不要假设：
 
 ```bash
-# Linux 环境里确认 APK 工具链
-command -v jadx apktool smali baksmali aapt2 apksigner readelf objdump
-# Frida 三件套（dexdump 是脱壳用的，装不上不影响插桩）
-command -v frida frida-ps frida-dexdump
+# 逐个查，不要写成 `command -v a b c`：dash 只认第一个操作数，bash 会静默跳过缺失项
+for t in jadx apktool smali baksmali aapt2 apksigner readelf objdump \
+         frida frida-ps frida-dexdump; do
+  printf '%-14s %s\n' "$t" "$(command -v "$t" 2>/dev/null || echo MISSING)"
+done
 ```
 
 如果 `jadx` 不存在 → 告诉用户「在 设置 → 终端 → Linux 环境 → APK 分析工具 里安装」，**不要自己从 GitHub 下 jadx 往里塞，也不要在 Linux 环境里手动 `apt install`（会和 Eta 的 profile 校验冲突）**。
@@ -196,8 +200,8 @@ lib.write("libgame_patched.so")
 **动手前先探活**（不要假设已装）：
 
 ```bash
-# Linux 环境里
-command -v frida frida-ps && frida-ps --version
+# Linux 环境里：逐个查，别写 `command -v a b c`
+command -v frida >/dev/null 2>&1 && frida-ps --version
 # Android 侧确认 server 在跑（端口是 8899，不是默认的 27042）
 su -c 'ss -lntp | grep 8899'
 ```
@@ -442,6 +446,6 @@ pm install -r /sdcard/xxx/signed.apk
 
 ## 三条硬规则
 
-1. **先探活再动手**。`command -v` 确认工具存在，不存在就告诉用户去设置里装，不要静默下载几百 MB。
+1. **先探活再动手**。`command -v` 确认工具存在（**逐个查，不要写成 `command -v a b c`**，dash 只认第一个参数），不存在就告诉用户去设置里装，不要静默下载几百 MB。
 2. **改完必须验证闭环**。改了 smali 就回编译 → 签名 → 装回 → 看能不能跑。只改不验等于没改。
 3. **不确定就说不知道**。加固壳、私有协议、企业级反作弊这三类，工具不到位时直接说「这一步当前做不到，原因是 X」，不要编一条看起来合理的路径。

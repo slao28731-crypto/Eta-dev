@@ -25,6 +25,26 @@
 **解法**：测试脚本里**不要 `export PATH`**，改成在 `subprocess.run(env=...)` 里传局部 PATH；受污染后 `export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin` 复位。
 **教训**：把假解释器放进 PATH 前面时，stub 的兜底分支必须是 `exit 1` 而不是 `exit 0`，否则失败会被伪装成成功。
 
+### P080 · `command -v a b c` 在多参数下静默漏检，让人误判工具缺失
+**现象**：真机跑 `command -v frida frida-ps frida-dexdump jadx apktool aapt2 apksigner readelf`，只输出 `/usr/local/bin/frida` 一行。看着像其余 7 个全丢了，实际上全部装在 `/usr/local/bin`。
+**根因**：`command -v` 在 POSIX 规范里只对**一个**操作数有保证。实测对照（`ci/check_command_v_portability.sh`）：
+
+| shell | `command -v sh ls nosuch_xyz` 输出 | 结论 |
+|---|---|---|
+| **dash** | 只有 `/usr/bin/sh` | 只处理第一个操作数，其余静默丢弃 |
+| **bash** | `/usr/bin/sh` + `/usr/bin/ls` | 处理多个，但**缺失项静默跳过、rc 仍为 0** |
+
+两种 shell 都会给出误导性结果，只是形态不同。Eta 的 Linux 环境默认走 dash，所以现象是「只有第一个有输出」。
+**解法**：一律逐个查。
+
+```bash
+for t in jadx apktool aapt2 apksigner readelf frida frida-ps frida-dexdump; do
+  printf '%-14s %s\n' "$t" "$(command -v "$t" 2>/dev/null || echo MISSING)"
+done
+```
+
+**教训**：探活脚本必须能区分「缺失」和「没打印」。批量 `command -v` 做不到这一点，`MISSING` 兜底才可以。
+
 ### P001 · 改了两行 Kotlin 却编译失败，报 SDK / JDK 版本不符
 **现象**：`Unsupported class file major version` 或 Compose 编译器报版本不匹配。
 **根因**：项目锁死 JDK 25 + compileSdk 37 + AGP 9.4.1 + Kotlin 2.4.20。用了 JDK 17 或 SDK 35 就会炸。
