@@ -204,8 +204,7 @@ def check_dollar_escapes() -> list:
         text = (ROOT / rel).read_text(encoding="utf-8")
         # 收集本文件里所有可被 `$name` 引用的名字：
         # - val / var / fun
-        # - data class 的构造属性（如 PackageProfileInstallProgress.stepTotal，
-        #   通过扩展函数访问时写 `$stepTotal`，编译器按 receiver 解析）
+        # - data class 的构造属性
         # - 函数参数、for 变量、lambda 参数
         declared = set(re.findall(r"\b(?:val|var|fun)\s+([a-zA-Z_][A-Za-z0-9_]*)", text))
         declared |= set(
@@ -214,25 +213,36 @@ def check_dollar_escapes() -> list:
                 text,
             )
         )
-        # 本模块内所有 data class 的属性名（跨文件也要算，因为这里只查 3 个文件）
         for other in KT_FILES:
             other_text = (ROOT / other).read_text(encoding="utf-8")
             declared |= set(
                 re.findall(r"^\s*val\s+([a-zA-Z_][A-Za-z0-9_]*)\s*:", other_text, re.MULTILINE)
             )
-        # 函数参数：`name: Type` 出现在参数列表里
         declared |= set(
             re.findall(r"[(,]\s*([a-zA-Z_][A-Za-z0-9_]*)\s*:\s*[A-Z][A-Za-z0-9_<>,.?\s]*", text)
         )
-        # 具名参数 `foo = bar` 左侧不算变量，但 for 循环变量要算
         declared |= set(re.findall(r"\bfor\s*\(\s*\(?\s*([a-zA-Z_][A-Za-z0-9_]*)", text))
         declared |= set(re.findall(r"\bfor\s*\(\s*([a-zA-Z_][A-Za-z0-9_]*)\s+in\b", text))
-        # lambda 参数 `{ x ->` 与 `{ a, b ->`
         for m in re.finditer(r"\{([^{}]*?)->", text):
             for part in m.group(1).split(","):
                 candidate = part.strip().split(":")[0].strip()
                 if re.fullmatch(r"[a-zA-Z_][A-Za-z0-9_]*", candidate or ""):
                     declared.add(candidate)
+
+        # 普通字符串 + **三引号原始字符串**都要查。
+        # 之前只查普通字符串，导致 PentestToolkits.kt 里三引号中的 $f/$d/$src
+        # 全部漏掉，直到 CI 才报（run #46 就是这个）。
+        for m in re.finditer(r'"""((?:.|\n)*?)"""', text):
+            raw = m.group(1)
+            for ref in re.finditer(r"(?<!\\)\$([a-z][A-Za-z0-9_]*)", raw):
+                name = ref.group(1)
+                if name in declared:
+                    continue
+                line = text.count("\n", 0, m.start() + ref.start()) + 1
+                errors.append(
+                    f"{rel}:{line} 三引号字符串里的 $%s 会被 Kotlin 当成插值，"
+                    f"shell 变量要写成 \\$%s" % (name, name)
+                )
         for m in pattern.finditer(text):
             raw = m.group(1)
             # 跳过已转义的 \$ 和 ${...} 形式（后者可能是合法表达式）
