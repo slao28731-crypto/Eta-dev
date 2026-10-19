@@ -2,6 +2,7 @@
 <resources>
     <string name="execution_channel">任務執行</string>
     <string name="execution_title">Eta 正在執行</string>
+    <string name="execution_title_count">Eta 正在執行（%1$d）</string>
     <plurals name="execution_summary">
         <item quantity="other">%1$d 項任務正在執行，可返回 Eta 查看進度</item>
     </plurals>

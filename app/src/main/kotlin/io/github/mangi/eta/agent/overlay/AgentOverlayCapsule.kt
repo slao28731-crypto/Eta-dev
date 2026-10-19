@@ -84,6 +84,8 @@ internal fun AgentOverlayCapsule(
     state: AgentOverlayState,
     expanded: Boolean,
     yielded: Boolean,
+    /** 除当前主任务外还在跑的 run 数；> 0 时在状态文字右侧显示 `+N`（第 3 批）。 */
+    otherRunCount: Int = 0,
     onToggleExpanded: () -> Unit,
     onCollapsedSettled: () -> Unit,
     onPause: () -> Unit,
@@ -201,6 +203,13 @@ internal fun AgentOverlayCapsule(
                         )
                     }
                     ThoughtLine(thought = state.thought.takeIf { state.phase == AgentOverlayPhase.RUNNING }.orEmpty())
+                    }
+                    // 第 3 批：还有别的任务在后台跑时挂一个 +N 角标。
+                    // 胶囊一次只能显示一个任务的状态，收起态下这是「并发」唯一的可见信号。
+                    // 放在 weight(1f) 的 Column 之外，文字变长时先压缩状态文字而不是挤掉角标。
+                    if (otherRunCount > 0) {
+                        Spacer(Modifier.width(6.dp))
+                        OtherRunBadge(count = otherRunCount, accent = accent)
                     }
                 }
 
@@ -320,6 +329,30 @@ private fun PhaseIndicator(phase: AgentOverlayPhase, accent: Color) {
 }
 
 /**
+ * 「还有 N 个在跑」角标：主色文字 + 极浅主色底，高度与状态文字一致。
+ *
+ * 用文字而不是第二个 PhaseIndicator：胶囊收起态只有一行，再来一个旋转光点会让用户
+ * 误以为有两个状态同时进行；`+N` 只表达「还有几个」，不抢夺当前任务的视觉焦点。
+ */
+@Composable
+private fun OtherRunBadge(count: Int, accent: Color) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(OtherBadgeCorner))
+            .background(accent.copy(alpha = 0.14f))
+            .padding(horizontal = 5.dp, vertical = 1.dp),
+    ) {
+        Text(
+            text = "+$count",
+            color = accent,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+        )
+    }
+}
+
+/**
  * 思考尾句：单行、从左侧裁掉旧内容，让最新的字始终可见。
  * 流式增量只改文字，不做逐字动画；行的出现与消失用高度不变的淡入淡出，避免胶囊上下跳动。
  */
@@ -358,3 +391,6 @@ private fun CapsuleAction(icon: ImageVector, label: String, tint: Color, onClick
 
 private val CapsuleCorner = 22.dp
 private val CapsuleWidth = 248.dp
+
+/** `+N` 角标圆角：与 11sp 文字的行高接近，做成小圆角胶囊而非正圆。 */
+private val OtherBadgeCorner = 6.dp

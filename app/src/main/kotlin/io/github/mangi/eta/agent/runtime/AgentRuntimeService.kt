@@ -97,12 +97,29 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
     /** 当前占据浮层的主任务 runId；null 表示没有主任务。 */
     @Volatile
     private var primaryRunId: String? = null
-
     /** 取主任务。所有 overlay 相关的操作都走它，保证「只有一个在画界面」。 */
     private fun primarySession(): AgentRuntimeSession? {
         val id = primaryRunId ?: return null
         return activeSessions[id]
     }
+
+    /**
+     * 除主任务之外还在跑的任务数（第 3 批）。
+     *
+     * 胶囊一次只能显示一个任务的状态，用户看不出「另一个还在后台干活」。
+     * 这个数字渲染成状态文字右侧的 `+N` 角标，是用户在收起态唯一能看到并发的窗口。
+     *
+     * 只在主线程读写：所有 [activeSessions] 的增删与 [primaryRunId] 的变更都发生在主线程
+     * （[startRun] 由 IncomingHandler 调用，其余在 mainHandler.post 内）。
+     */
+    private val otherRunCountState = mutableStateOf(0)
+
+    /** 重算「其余在跑的任务数」。必须紧跟每一次 [activeSessions] / [primaryRunId] 变更调用。 */
+    private fun refreshOtherRunCount() {
+        val count = activeSessions.keys.count { it != primaryRunId }
+        if (otherRunCountState.value != count) otherRunCountState.value = count
+    }
+
 
     private var startRequestGeneration = 0L
     private var pendingStartRequest: PendingStartRequest? = null
@@ -224,6 +241,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         activeSessions.values.forEach { it.cancel("Agent Runtime 服务已停止") }
         activeSessions.clear()
         primaryRunId = null
+        refreshOtherRunCount()
         resultIo.shutdownNow()
         mainHandler.removeCallbacksAndMessages(null)
         AgentOverlayClearance.detach(clearanceHost)
@@ -417,6 +435,9 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         //   （否则用户在 A 对话盯着胶囊，B 对话一开就把 A 的状态顶掉了）
         val becamePrimary = primaryRunId == null
         if (becamePrimary) primaryRunId = request.runId
+        // 第 3 批：新任务入册后重算角标。非主任务会增加「其余在跑」的数量，
+        // 主任务则让这个数字归零（它就是被显示的那一个）。
+        refreshOtherRunCount()
         lastCompletedRunContext = null
         runCatching {
             startService(Intent(this, AgentRuntimeService::class.java).setAction(ACTION_KEEP_ALIVE))
@@ -433,6 +454,10 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
             state.value = AgentOverlayState.Initial
             capsuleExpanded.value = false
             setCapsuleWindowHeight(CAPSULE_COLLAPSED_HEIGHT_DP)
+            // 新任务接管浮层时，上一个任务的「结果卡片」必须先撤掉：
+            // 它是半屏窗口且带关闭键，关闭走的是 dismissAndStop()（会 stopSelf 并拆掉胶囊），
+            // 留着它等于给后台任务埋一个「点一下就全没了」的按钮（P097）。
+            removeResultCard()
         }
         hasExecutedForegroundTool = false
         resultConversationId = request.handoff
@@ -465,10 +490,25 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
             try {
                 executeRun(session, request)
             } finally {
-                AgentExecutionService.updateRunStatus(this, null)
                 AgentExecutionService.release("run:${request.runId}")
+                // 第 3 批修复：这里原本是无条件 `updateRunStatus(this, null)`。
+                // 并发之后它是错的 —— A 先跑完就把 runStatus 擦成 null，
+                // 通知栏里正在干活的 B 的状态文字随之消失（P097）。
+                // 改为交给主线程判断：只有「最后一个任务也走了」才清空。
+                mainHandler.post { refreshRunStatusIfIdle() }
             }
         }
+    }
+
+    /**
+     * 只在没有任何在跑的 run 时清空通知状态。
+     *
+     * `release()` 是按 runId 释放的（安全），但 [AgentExecutionService.updateRunStatus]
+     * 写的是一个全局单值，必须由「还有没有别人」来决定能否清（P097）。
+     */
+    private fun refreshRunStatusIfIdle() {
+        if (activeSessions.isNotEmpty()) return
+        AgentExecutionService.updateRunStatus(this, null)
     }
 
     private fun executeRun(
@@ -495,7 +535,9 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                     if (primaryRunId == session.runId) {
                         primaryRunId = activeSessions.keys.firstOrNull()
                     }
+                    refreshOtherRunCount()
                 }
+                refreshRunStatusIfIdle()
             }
             return
         }
@@ -595,9 +637,22 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                 // 否则清空主任务标记，浮层回到空闲。
                 primaryRunId = activeSessions.keys.firstOrNull()
             }
+            refreshOtherRunCount()
+            refreshRunStatusIfIdle()
             // 后台任务结束不进终态浮层，也不改主任务状态；
             // 它的结果已经通过 resultSink 投递给 UI 进程，由那边的对话负责展示。
             if (!wasPrimary) return@post
+            // 第 3 批修复：浮层让给下一个任务时，必须把渲染状态也交出去。
+            // 原来只换了 primaryRunId，state 还挂着刚结束这个任务的「已返回结果」，
+            // 而接手的新主任务在后台期间的事件被 primaryRunId 判断挡掉了，
+            // 不重置就会出现「胶囊显示已完成、实际上还在干活」的过期状态（P097）。
+            if (primaryRunId != null) {
+                state.value = AgentOverlayState.Initial
+                capsuleExpanded.value = false
+                setCapsuleWindowHeight(CAPSULE_COLLAPSED_HEIGHT_DP)
+                ensureOverlayVisible()
+                return@post
+            }
             lastCompletedRunContext = completedContext
             runCatching {
                 if (result.ok) {
@@ -969,6 +1024,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                 state = state.value,
                 expanded = capsuleExpanded.value,
                 yielded = capsuleYielded.value,
+                otherRunCount = otherRunCountState.value,
                 onToggleExpanded = ::toggleCapsule,
                 onCollapsedSettled = ::onCapsuleCollapsedSettled,
                 onPause = ::requestPause,
@@ -1304,6 +1360,21 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         glowView = null
         capsuleParams = null
         glowParams = null
+    }
+
+    /**
+     * 只撤掉结果卡片，保留胶囊/边缘光与服务本身。
+     *
+     * 与 [dismissAndStop] 的区别：那个是「任务全结束，收摊走人」（含 `stopSelf()`）；
+     * 这个用于「上一个任务的结果卡还挂着，但下一个任务已经接管浮层」——
+     * 卡片上的关闭键会走 `dismissAndStop()`，留着它会把新任务一起关掉（P097）。
+     */
+    private fun removeResultCard() {
+        if (resultCardView == null) return
+        unregisterResultCardBack()
+        resultCardView?.let { view -> runCatching { windowManager?.removeView(view) } }
+        resultCardView = null
+        resultCardParams = null
     }
 
     private fun dismissAndStop() {

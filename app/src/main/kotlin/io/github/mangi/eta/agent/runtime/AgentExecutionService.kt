@@ -106,7 +106,15 @@ internal class AgentExecutionService : Service() {
         val taskCount = leases.count()
         val builder = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(getString(R.string.execution_title))
+            // 第 3 批：多任务时标题带总数，一眼看清「有几个在跑」；
+            // 正文仍然是主任务状态，不因为并发把最有用的信息换掉。
+            .setContentTitle(
+                if (taskCount > 1) {
+                    getString(R.string.execution_title_count, taskCount)
+                } else {
+                    getString(R.string.execution_title)
+                }
+            )
             .setContentText(
                 status?.localizedText(resources)
                     ?: resources.getQuantityString(R.plurals.execution_summary, taskCount, taskCount)

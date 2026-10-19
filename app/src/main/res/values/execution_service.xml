@@ -2,6 +2,7 @@
 <resources>
     <string name="execution_channel">Running tasks</string>
     <string name="execution_title">Eta is running</string>
+    <string name="execution_title_count">Eta is running (%1$d)</string>
     <plurals name="execution_summary">
         <item quantity="one">%1$d task is running. Return to Eta to check progress.</item>
         <item quantity="other">%1$d tasks are running. Return to Eta to check progress.</item>
