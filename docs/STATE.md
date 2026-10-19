@@ -138,10 +138,18 @@ Agent 自己就能添加 MCP 服务器，不需要用户进设置页。6 个工�
 
 ## 下一步（最重要）
 
-**九轮全部完成，当前无进行中任务。等用户发下一道指令。**
+**第十轮已完成并编译通过（CI run #38），等真机验收。**
 
-- 第九轮已编译通过（CI run #35，commit `fe369a4`），**待真机验证**：设置 → 终端 → Linux 环境 → 逆向分析工具组，点安装后确认 z3/unicorn/apkid/objection/mitmdump/r2 六个都能跑
-- 77 个 skill ZIP 在 `/sdcard/Download/eta-skills/zips/`，待用户在设置页逐个导入
+- 装 run #38 的产物（commit `2024f51`），进 设置 → 终端 → Linux 环境 → 逆向分析工具组，点安装
+- 观察进度条：先是「下载 radare2_6.2.4_arm64.deb · 37%」这类真实百分比，然后是「正在安装 apkid (3/8)」这类分步进度
+- 装完跑自检（贴原始输出给我）：
+  ```sh
+  for t in r2 radare2 mitmdump objection apkid; do printf '%-12s %s\n' "$t" "$(command -v "$t" 2>/dev/null || echo MISSING)"; done
+  python3 -c "import z3, unicorn; print('py ok')"
+  r2 -v | head -1
+  ```
+- angr 单独一项，默认不装（900MB），需要符号执行时再点
+- 77 个 skill ZIP 在 `/sdcard/Download/eta-skills/zips/`，待导入（先拿 2.2KB 的 `packer-identification.zip` 试）
 
 第五轮验收（删除 demo 目录）用户原话：「刚刚我去Github仓库看了一下，demo文件夹里面都是之前用的HTML预览图，请你删除这个文件夹和内容，以后预览图只在本地生成」。
 第六轮用户定调：「按照你推荐进行」= 530KB 全量切分 + A/C 工具组 + 解掉回编译限制。**已验收**。

@@ -3,8 +3,79 @@
 > 格式：**现象** → **根因** → **解法**。新坑往上加，不要只写结论。
 
 ---
-
 ## 构建 / 工具链
+
+### P082 · Kotlin 字符串里裸写 `$shell_var`，编译报 Unresolved reference
+
+**现象**：`Unresolved reference 'eta_bin'`，报在 `append("[ -d \"$eta_bin\" ]")` 这一行，
+但那行看起来完全正常——它就是一段 shell 脚本。
+
+**根因**：Kotlin 的字符串模板。`"$eta_bin"` 里 `$` 后接合法标识符时，
+Kotlin 认为这是**变量引用**，去找名为 `eta_bin` 的 Kotlin 变量。
+shell 的变量必须写成 `"\$eta_bin"`。CI run #37 就是这个，4 个校验脚本全没拦住。
+
+**排查方式**：CI 日志里 `e: file:///...:195:25 Unresolved reference 'xxx'`，
+指向的行是字符串字面量 → 基本可以断定是模板插值没转义。
+日志需要 token 才能拉（`Authorization: Bearer <token>` + `/actions/jobs/<id>/logs`）。
+
+**防护**：`ci/static_check.py` 第 2 项「shell 变量转义」，
+抽出所有 Kotlin 字符串字面量，找 `$小写标识符`，
+不在白名单（val/var/fun/参数/for 变量/lambda 参数/data class 属性）里就报错。
+配套 `ci/self_test_static_check.py` 反向验证灵敏度。
+
+**教训**：错误在「字符串内容」里时，查括号、查结构、查资源名的脚本都看不见。
+写这类检查要问一句：**我是不是只查了行首和结构，没查字符串里面？**
+
+### P083 · Debian trixie 源里没有 radare2，写进 packages 会让整条 profile 第一步就死
+
+**现象**：真机「安装逆向分析工具组失败」，UI 只说失败不说原因。
+
+**排查**：在 rootfs 里直接问 apt：
+
+```sh
+apt-cache policy radare2    # Candidate: (none)
+apt-cache search radare    # 一个字都不返回
+```
+
+**根因**：radare2 在 Debian 的 `main` 里根本不存在（不是版本太老，是没有这个包）。
+把它写进 `LinuxPackageSpec.packages` 走 `eta-apt install`，apt 直接
+`E: Package 'radare2' has no installation candidate`，
+**后面的 5 条 pip 一条都不会执行**，所以最终看起来「全都装不上」。
+
+**正确做法**：走 GitHub Releases 的官方 deb。
+
+```
+https://github.com/radareorg/radare2/releases/download/6.2.4/radare2_6.2.4_arm64.deb
+sha256 = bbf48ee7bd5d8282f65a297dcabd34c9961a500e62d6b036679caab187b32ef1
+```
+
+`Control` 里 `Depends: libc6` 一项，基础环境必有，所以 `dpkg -i` 不会留半配置。
+装完立刻 `r2 -v` 验一遍——「dpkg 成功」和「二进制能跑」是两件事。
+
+**同类风险**：Alpine 的 `community` 源里 radare2 是有的（v3.24 aarch64 / 6.1.6-r0），
+所以两条发行版分支的装法不能合并。
+
+### P084 · pip 装的脚本落在不在 PATH 的目录，装了等于没装
+
+**现象**：`pip install mitmproxy` 明明 `Successfully installed`，
+但 `command -v mitmdump` 返回空。
+
+**根因**：pip 把入口脚本写进 `sysconfig.get_path("scripts")`，
+在 Eta 的 uv Python 里是 `/opt/eta/python/cpython-<ver>-linux-<arch>-gnu/bin`，
+而终端环境的 PATH 只有 `/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`。
+pip 自己会打 WARNING：`The script X is installed in ... which is not on PATH`。
+
+**做法**：装完统一建软链，一条命令覆盖所有 pip 入口：
+
+```sh
+eta_bin=$(python3 -c "import sysconfig; print(sysconfig.get_path('scripts'))") || exit 78
+[ -d "$eta_bin" ] || exit 78
+[ -e "$eta_bin/mitmdump" ] && ln -sf "$eta_bin/mitmdump" /usr/local/bin/mitmdump
+```
+
+（注意上面这段在 Kotlin 里要写成 `\$eta_bin`，见 P082。）
+
+
 
 ### P081 · Kotlin `object` 里 `val ALL = listOf(A, B)` 写在 A/B 之前 → 编译失败
 **现象**：CI「构建 APK」步骤红，错误是 `Variable 'RE_LAB' must be initialized`。本地看不出来，因为本地不能编译。

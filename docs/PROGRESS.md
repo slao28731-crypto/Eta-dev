@@ -60,8 +60,15 @@
   - 代码改动：`FridaPaths` 新增 `RUNTIME_DIR` + `runtimeServerFile()`；新增 `stageServer()`（起之前复制 + chmod 755，大小一致时只补权限）；`startServer()` / `detectServerPid()` 改用 runtime 路径并先 `cd`；新增 `purgeStaleServer()` 清掉老版本跑在 filesDir 的残留（**只比 cmdline 第一个 token，整体 contains 会自杀**）；`ensureRunning()` 加 `staleForeign` 判定；`stopServer()` 也能清野生进程
   - 顺带修：中文 `values-b+zh+Hans/strings.xml` 补 7 条 `linux_frida_*` 并同步 `linux_apk_tools_ready/summary`（上一轮只改了英文）；`AgentPromptBuilder` 与 `re-mobile/SKILL.md` 的路径说明全部改成 runtime 目录
   - **已验证**：编译（CI 通过）、`stageServer()` 端到端（点「停止」→「启动」后 attach 成功）、`purgeStaleServer()`（未自伤、未报错）
+- [x] **2026-10-19** 第十轮：修掉「安装逆向分析工具组失败」+ 安装进度可视化（用户真机报错后查证）
+  - **根因 1（radare2）**：`apt-cache policy radare2` → `Candidate: (none)`，`apt-cache search radare` 零结果。**Debian trixie 源里没有 radare2**。第九轮把它写进 `packages` 走 `eta-apt install`，apt 报 `has no installation candidate`，**整条 profile 第一步就死，后面 5 个 pip 包一个都没跑**。→ 改走 GitHub Releases 的 `radare2_6.2.4_arm64.deb`（ELF aarch64、`Depends: libc6`、sha256 `bbf48ee7…32ef1` 已对官方 checksums.txt），由 `VerifiedArtifactDownloader` 落到 rootfs/tmp 再 `dpkg -i`
+  - **根因 2（PATH）**：`sysconfig.get_path("scripts")` = `/opt/eta/python/cpython-3.14.7-linux-aarch64-gnu/bin`，**不在 PATH 里**，所以 `pip install mitmproxy` 成功了但 `command -v mitmdump` 找不到。→ 新增一步统一在 `/usr/local/bin` 建软链
+  - **进度可视化**：引入 `LinuxPackageStep`（每组件一步、单独标签、单独判失败），RE_LAB 拆 8 步、ANGR 拆 2 步；`PackageProfileInstallProgress` 加 `item/stepIndex/stepTotal`；状态卡加 `LinearProgressIndicator`（下载按字节、安装按步数）；`Failed` 加 `detail` 把 apt/pip 输出尾部直接展示给用户
+  - **真机实测**：chroot 内 `r2 -v` → `radare2 6.2.4 +1 abi:152 @ linux-arm_64`；apkid 3.1.0 / mitmproxy 12.2.3 / objection 1.12.5 三个包均装成功
+  - **run #37 又踩一坑（P082）**：Kotlin 字符串里写 `"$eta_bin"` 被当模板插值 → `Unresolved reference 'eta_bin'`。必须写 `"\$eta_bin"`。**四个校验脚本全没拦住**，因为它们只查行/结构，不查字符串内容。→ `ci/static_check.py` 新增第 2 项「shell 变量转义」+ `ci/self_test_static_check.py` 反向验证（注入事故必须报错且指向 eta_bin）
+  - **run #38 绿**，产物 `eta-apk-2024f51…`（34,515,521 字节）
 - [x] **2026-10-19** 第九轮：内置逆向分析工具组（用户给了 17 项待内置清单，逐条核实后只做能跑的）
-  - **查证推翻了 4 条**：① `radare2` GitHub Releases **没有 linux-arm64**（6.2.4 只有 Windows/iOS/macOS/x86_64）→ 改走 apt，Debian trixie 与 Alpine v3.24 community 都有 aarch64 包；② `dex2jar` **PyPI 上不存在**（`/pypi/dex2jar/json` 返回 404）→ 不做，jadx 已覆盖；③ Android NDK **Google 从不发 aarch64 Linux 版**（r30 只有 windows/darwin/linux-x86_64）→ 不做；④ gradle + SDK cmdline-tools 无 aarch64 官方版、>2GB → 不做。另外 blutter（要手机编 Dart 运行时）、KSU 内核模块（要内核头）也排除
+  - **查证推翻了 4 条（其中第 1 条在第十轮被自己纠正）**：① 当时判断「radare2 GitHub Releases 没有 linux-arm64」——**这是错的**，6.2.4 实际有 `radare2_6.2.4_arm64.deb`，第十轮改用这个；② `dex2jar` **PyPI 上不存在**（`/pypi/dex2jar/json` 返回 404）→ 不做，jadx 已覆盖；③ Android NDK **Google 从不发 aarch64 Linux 版**（r30 只有 windows/darwin/linux-x86_64）→ 不做；④ gradle + SDK cmdline-tools 无 aarch64 官方版、>2GB → 不做。另外 blutter（要手机编 Dart 运行时）、KSU 内核模块（要内核头）也排除
   - **新增 `RE_LAB` profile（约 400MB）**：z3-solver / unicorn / apkid / objection / mitmproxy / radare2。五条 pip 各自 `|| exit <code>`，最后逐个 `command -v` 与 `import` 探活，缺一个都不写 marker
   - **新增 `ANGR` profile（约 900MB，默认不装）**：依赖树太大，做成用户按需点
   - **配套**：`SKILL.md` 补 radare2 / apkid / z3 / unicorn 的实战用法与 mitmproxy 完整抓包流程（含 Android 7+ 系统证书必踩的坑）；`AgentPromptBuilder` 同步告知 Agent
