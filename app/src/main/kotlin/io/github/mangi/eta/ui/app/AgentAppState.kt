@@ -942,8 +942,9 @@ internal class AgentAppState(
     fun enqueueQueuedMessage(text: String) {
         val trimmed = text.trim()
         if (trimmed.isBlank()) return
-        // 角色卡对话的中途插话要另走 roleplay 投影，第一版保持在普通对话。
-        if (homeState.roleplay != null) return
+        // 角色对话也允许排队：中途插话走的是同一条 sendCurrentMessage 路径，
+        // linkRun 会按 journal 里的 messageId 给新插入的 UserMessageUi 补上
+        // roleplayMessages.links，装饰逻辑不需要额外处理。
         // 附件不参与排队：这条路径只搬运纯文本，带了附件会在上面被静默丢弃。
         if (homeState.pendingImages.isNotEmpty() || homeState.pendingFileReferences.isNotEmpty()) return
         updateCurrentConversation(
@@ -1019,7 +1020,6 @@ internal class AgentAppState(
             return
         }
         if (homeState.isStreaming) return
-        if (homeState.roleplay != null) return
         if (selectedConversationId?.isReadOnlyExternalArchiveConversation() == true) return
         val next = homeState.queuedMessages.firstOrNull() ?: return
         removeQueuedMessage(next.id)

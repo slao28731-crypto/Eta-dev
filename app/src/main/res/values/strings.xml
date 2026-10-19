@@ -1209,7 +1209,7 @@
   <string name="chat_input_hint">Ask Eta to do something</string>
   <string name="chat_stop">Stop</string>
   <string name="chat_send">Send</string>
-  <string name="chat_queue_title">Pending (%1$d)</string>
+  <string name="chat_queue_title">Pending</string>
   <string name="chat_queue_add">Add to queue</string>
   <string name="chat_queue_send_now">Send now</string>
   <string name="chat_queue_remove">Remove</string>

@@ -1,7 +1,18 @@
-docs: 第十五轮收工——待发送队列完成，CI run #60 绿
+feat(chat): 待发送卡片美化（方案 1）+ 角色对话支持插话
 
-- STATE：下一步改为真机验收 run #60，附 5 步验收要点
-- PROGRESS：第十五轮标记 CI 通过
-- PITFALLS：新增 P095（Composable 三层参数透传 + check-run annotation 取错法）
-- workflow：删掉临时上传日志步骤，保留 ::error:: 写 annotation 的做法
-  并注明「别再删」，以后取编译错误靠它
+视觉返工（用户反馈「美观度不行」）：
+- 根因是嵌套卡片：外层 surfaceContainerHigh 里每条消息又套一层 surface，
+  深色模式下 surface 是纯黑，黑块叠在中灰卡上就是一个个「洞」
+- 改为单一底色 + HorizontalDivider(0.5dp, outline@8%) 分隔，不再套小卡
+- 标题从「待发送 3 条」拆成：6dp 主色状态点 + 「待发送」+ 数字胶囊(primary@18%)
+- 图标按钮 32dp/17dp 改为 30dp/16dp，条目内边距 14dp 起
+- itemsIndexed 替代 items，好在首条前不加分隔线
+
+角色对话支持插话：
+- 移除 enqueueQueuedMessage 与 drainQueuedMessageAfterRun 里的
+  roleplay 非空拦截
+- 依据：插话走同一条 sendCurrentMessage 路径，RoleplayConversationReducer.linkRun()
+  会按 journal 的 messageId 给新插入的 UserMessageUi 补 roleplayMessages.links，
+  角色卡的编辑/重新生成能力照常生效，不需要额外处理
+
+文案：chat_queue_title 去掉 %1$d，数量改由胶囊承载（中英各一条）

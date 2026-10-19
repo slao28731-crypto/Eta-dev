@@ -6,18 +6,21 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
@@ -33,6 +36,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.ui.model.QueuedMessageUi
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.squircle.squircleBorder
@@ -46,8 +50,10 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 不嵌进 TextField 容器。理由是这个面板只在运行中出现，尺寸会随条目数变化，
  * 放进输入框会把主输入区高度顶得来回跳。
  *
- * 交互对齐 Operit 的 PendingMessageQueuePanel：
- * 可折叠标题 + 每条一行（编辑按钮在输入区、发送/删除在面板内），单行省略。
+ * 视觉设计（第 1 版返工）：**不做嵌套卡片**。上一版外层用 surfaceContainerHigh、
+ * 每条消息又套一层 `surface`，而深色模式下 `surface` 是纯黑 —— 黑块叠在中灰卡上
+ * 就是一个个「洞」，正是用户明确否掉的层次反转。现在整块只有一层底色，
+ * 条目之间用 0.5dp 分隔线划分。
  */
 @Composable
 internal fun PendingMessageQueuePanel(
@@ -70,32 +76,15 @@ internal fun PendingMessageQueuePanel(
             )
             .squircleBorder(
                 width = 0.5.dp,
-                color = MiuixTheme.colorScheme.outline.copy(alpha = 0.5f),
+                color = MiuixTheme.colorScheme.outline.copy(alpha = 0.16f),
                 cornerRadius = 16.dp,
             ),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { onExpandedChange(!expanded) }
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = stringResource(R.string.chat_queue_title, messages.size),
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.weight(1f),
-            )
-            Icon(
-                imageVector = if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
-                contentDescription = stringResource(
-                    if (expanded) R.string.chat_queue_collapse else R.string.chat_queue_expand
-                ),
-                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.size(20.dp),
-            )
-        }
+        QueueHeader(
+            count = messages.size,
+            expanded = expanded,
+            onToggle = { onExpandedChange(!expanded) },
+        )
 
         AnimatedVisibility(
             visible = expanded,
@@ -105,12 +94,17 @@ internal fun PendingMessageQueuePanel(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    // 上限压住高度：运营商/多行排队时不能把聊天区挤没。
+                    // 上限压住高度：排队条数多时不能把聊天区挤没。
                     .heightIn(max = 168.dp),
-                contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                contentPadding = PaddingValues(bottom = 4.dp),
             ) {
-                items(items = messages, key = { it.id }) { item ->
+                itemsIndexed(items = messages, key = { _, it -> it.id }) { index, item ->
+                    if (index > 0) {
+                        HorizontalDivider(
+                            thickness = 0.5.dp,
+                            color = MiuixTheme.colorScheme.outline.copy(alpha = 0.08f),
+                        )
+                    }
                     QueuedMessageRow(
                         message = item,
                         onRemove = { onRemove(item.id) },
@@ -119,6 +113,63 @@ internal fun PendingMessageQueuePanel(
                 }
             }
         }
+    }
+}
+
+/**
+ * 标题行：状态点 + 「待发送」+ 数字胶囊。
+ *
+ * 上一版是一整句「待发送 3 条」，字号与正文相同、颜色也相近，看不出层级。
+ * 现在把数量抽成胶囊，数量变化时只重绘这一个小块。
+ */
+@Composable
+private fun QueueHeader(
+    count: Int,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .padding(start = 14.dp, end = 12.dp, top = 10.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // 表示「有东西在等」的状态点，用主色。
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .clip(CircleShape)
+                .background(MiuixTheme.colorScheme.primary),
+        )
+        Spacer(modifier = Modifier.width(7.dp))
+        Text(
+            text = stringResource(R.string.chat_queue_title),
+            style = MiuixTheme.textStyles.footnote1,
+            color = MiuixTheme.colorScheme.onSurface,
+        )
+        Spacer(modifier = Modifier.width(7.dp))
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(9.dp))
+                .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.18f))
+                .padding(horizontal = 7.dp, vertical = 1.dp),
+        ) {
+            Text(
+                text = count.toString(),
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.primary,
+            )
+        }
+        Spacer(modifier = Modifier.weight(1f))
+        Icon(
+            imageVector = if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+            contentDescription = stringResource(
+                if (expanded) R.string.chat_queue_collapse else R.string.chat_queue_expand
+            ),
+            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.size(20.dp),
+        )
     }
 }
 
@@ -131,12 +182,7 @@ private fun QueuedMessageRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .squircleSurface(
-                color = MiuixTheme.colorScheme.surface,
-                cornerRadius = 10.dp,
-            )
-            .padding(start = 12.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
+            .padding(start = 14.dp, end = 6.dp, top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -169,9 +215,10 @@ private fun QueueRowAction(
     tint: androidx.compose.ui.graphics.Color,
     onClick: () -> Unit,
 ) {
+    // 30dp 是「看得清但不挤」的档位：上一版 32dp 配 17dp 图标显得空。
     Box(
         modifier = Modifier
-            .size(32.dp)
+            .size(30.dp)
             .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -180,7 +227,7 @@ private fun QueueRowAction(
             imageVector = icon,
             contentDescription = contentDescription,
             tint = tint,
-            modifier = Modifier.size(17.dp),
+            modifier = Modifier.size(16.dp),
         )
     }
 }
