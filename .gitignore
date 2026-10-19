@@ -34,6 +34,8 @@ google-services.json
 
 # 外部源码参考，仅供阅读，不参与当前仓库版本管理
 /reference/
+# UI 预览原型（HTML 调参台 / 布局对比页）：只在本地生成用于看效果，不入库
+/demo/
 
 # Operit snapshots (contains credentials)
 .backup/

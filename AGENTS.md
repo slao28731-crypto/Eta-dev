@@ -248,8 +248,16 @@ Tool Calling 与推理内容的字段也不一样。**不要把三条路径抽�
 □ 5. docs/CONVENTIONS.md：构建/发版/依赖版本变了才改
 □ 6. docs/adr/NNN-标题.md：做了架构选择就新建（没做就跳过）
 □ 7. 跑了 graphify update .（改过 app/src/ 下任何文件就必须跑）
-□ 8. git status 确认没有意外文件（.keys/ graphify-out/ 不能进）
+□ 8. git status 确认没有意外文件（.keys/ graphify-out/ demo/ 不能进）
 ```
+
+### 预览图不入库（用户明确要求，2026-10-19）
+
+调 UI 时先做 HTML 预览页给用户看效果是对的，但**预览页只放本地，不提交**：
+
+- `demo/` 已在 `.gitignore`，历史版本的 `demo/` 已删除，不要在仓库里重建。
+- 需要预览时在本地建临时目录（或复用被 ignore 的 `demo/`），看完即弃。
+- 文档里提到预览页时，写成「原 `demo/xxx.html`（已删除，本地生成）」这种说明式，不要写成可直接打开的路径。
 
 ### 判断标准（一句话）
 

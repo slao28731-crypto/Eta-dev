@@ -53,11 +53,11 @@ Agent 自己就能添加 MCP 服务器，不需要用户进设置页。6 个工�
 | 菜单项 | 已删除「新建对话」，剩：终端 / Kimi Web / 浏览器 / 停止 Kimi（条件） |
 | 菜单索引 | 0 终端 / 1 Kimi Web / 2 浏览器 / 3 停止 Kimi。**改菜单顺序必须同步改 `onSelectedIndexChange`** |
 
-调参原型：`demo/topbar-v2.html`（会话历史图标四滑块 + 六预设）、`demo/topbar-icons.html`（顶栏全部图标总览）。
+调参原型：历史版本曾在仓库 `demo/` 下（`topbar-v2.html` 会话历史图标四滑块 + 六预设、`topbar-icons.html` 顶栏全部图标总览），**现已删除并加入 `.gitignore`，预览页只在本地生成、不入库**。
 
 ## 深色配色方案（用户已定稿）
 
-用户用 `demo/dark-palette.html` 调色台逐档试色后拍板，这套值已成为深色模式的基准：
+用户用本地生成的深色调色台（原 `demo/dark-palette.html`，**该目录已删除、预览页不入库**）逐档试色后拍板，这套值已成为深色模式的基准：
 
 | 层级 | 色值 | 亮度 | 常量 | 用途 |
 |---|---|---|---|---|
@@ -123,7 +123,7 @@ Agent 自己就能添加 MCP 服务器，不需要用户进设置页。6 个工�
 | 新 MCP 默认启用策略 | `enableAllDiscoveredTools` 参数 | `agent/mcp/McpServerManager.kt` |
 | MCP 脱敏豁免名单 | `mcpManagementTools` | `agent/model/AgentSensitiveToolPolicy.kt` |
 
-原型：`demo/dark-palette.html`（深色调色台）、`demo/topbar-v2.html`（会话历史图标调参）、`demo/topbar-icons.html`（顶栏图标总览）。
+原型（**均不再入库**，需要时临时本地生成）：深色调色台（原 `demo/dark-palette.html`）、会话历史图标调参（原 `demo/topbar-v2.html`）、顶栏图标总览（原 `demo/topbar-icons.html`）。
 
 ---
 
