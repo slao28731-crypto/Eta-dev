@@ -125,7 +125,12 @@ internal object AgentPromptBuilder {
                     "运行时 Hook、脱壳、内存读写需要 Frida，由 App 内置安装（设置 → 终端 → Linux 环境 → Frida），" +
                     "server 以 root 身份跑在 /data/local/tmp/eta-frida 并监听 127.0.0.1:8899（不是 27042），" +
                     "frida 与 server 同为 17.24.2，" +
-                    "frida-tools 是独立的 14.11.0 版本线；未安装时让用户在设置里点安装，不要自行下载或 adb push。" +
+                    "frida-tools 是独立的 14.11.0 版本线，脱壳用 frida-dexdump 2.0.1（随 Frida 一起装）；" +
+                    "未安装时让用户在设置里点安装，不要自行下载或 adb push。" +
+                    "没有 Root 时 Frida 无法启动，此时只能做静态分析（解包、反编译、ELF 分析），" +
+                    "改完 dex 也无法签名装回；遇到这种设备要直接说明范围，不要逐条试必然失败的步骤。" +
+                    "Unity IL2CPP 的类型还原依赖 Il2CppDumper（.NET 程序），手机端装不上，" +
+                    "只能让用户在电脑上跑完再把 dump.cs / script.json 传回来。" +
                     "读取图片内容调用 read_image；同一轮最多读取一张，观察返回内容后再读下一张。" +
                     executionContext?.let { "\n" + it.description(rootAvailable) }.orEmpty(),
             ))

@@ -61,6 +61,13 @@
   - 顺带修：中文 `values-b+zh+Hans/strings.xml` 补 7 条 `linux_frida_*` 并同步 `linux_apk_tools_ready/summary`（上一轮只改了英文）；`AgentPromptBuilder` 与 `re-mobile/SKILL.md` 的路径说明全部改成 runtime 目录
   - **已验证**：编译（CI 通过）、`stageServer()` 端到端（点「停止」→「启动」后 attach 成功）、`purgeStaleServer()`（未自伤、未报错）
 - [x] **2026-10-19** 第七轮终验通过（用户原话「成功 + 13」）：用户装 CI 产物 → 点「停止」→「启动」→ Agent 在内置终端里 `attach` pid 15851，输出 `Connected to 127.0.0.1:8899` / `Attaching...` 无报错 / `Process.enumerateModules().length` → `13`。**attach 链路彻底通了，Frida 内置功能交付完成。** 全程无电脑、无 adb、无手工推文件，「别人装上也能用」达成
+- [x] **2026-10-19** 第八轮：补齐逆向工具链的四个缺口（用户只说「做」，按上一轮列出的 1→3 项执行）
+  - **1. 装 `frida-dexdump 2.0.1`**：`re-mobile/SKILL.md` 第 5 步原来写「先试 frida-dexdump」，但工具根本没装——frida-tools 里没有这个子命令，脱壳第一步是空的。`FridaPaths` 加 `DEXDUMP_VERSION`，pip 命令追加该包，软链清单加 `frida-dexdump`。**关键：跳过 pip 的条件从「frida 版本对上」改成「frida 版本对上 **且** `import frida_dexdump` 成功」**，否则老用户升级后版本判断通过、永远补不上脱壳工具。装不上只 `echo FRIDA_DEXDUMP_MISSING` 不判死，避免整条 Frida 退回不可用
+  - **2. 删掉一条不存在的技术路线**：原 SKILL.md 写「等 Eta 侧从 Google Maven 拉 ARM64 版 aapt2」——**Google 官方 Maven 只发 linux(x86_64)/osx/windows 三份，没有 aarch64**。改成明确结论：资源回编译只能去电脑上做，别在手机上找
+  - **3. 加 Root 前置判定**：SKILL.md 开头新增「第 0 步」——无 Root 时 Frida 起不来、改完 dex 也签不上，只能做静态分析。`AgentPromptBuilder` 同步补这段，避免 Agent 逐条试必然失败的步骤
+  - **顺带**：`game-engines.md` 的 Unity IL2CPP 段加一段明确边界（Il2CppDumper 是 .NET 程序，手机装不上，只能电脑跑完回传 `dump.cs` / `script.json`），并给出手机端实际能做的四件事
+  - **防回归**：新增 `ci/verify_frida_cli.py`，从 Kotlin 源码反解真实 shell 串 → `bash/dash/sh -n` 三份语法校验 → 沙箱跑「老用户升级」与「已装全」两个分支。**起因是本轮第一次编辑就把整条命令删空只留 `android` 一行，肉眼完全看不出**。已接入 `build-apk.yml` 作为第一个校验步骤
+  - **未验证**：编译与真机（本地不能编译，走 CI）；pip 实际能否装上 `frida-dexdump` 需在真机点一次安装确认
 
 ## 进行中
 
@@ -73,6 +80,7 @@ _暂无_
 - [ ] **校验固定签名的首次云端构建**：推送后确认 Actions 日志里打印的 SHA256 指纹为 `C9:73:FE:...:1F:0A`，且 apksigner verify 通过
 - [ ] **keystore 离线三份备份**：`eta-release.jks` + 密码文本，分别存手机本地、网盘、邮箱（文件不可再生）
 - [ ] **真机功能验证**：在目标设备上验证 Xposed 模块加载、无障碍服务、终端、MCP 连通
+- [ ] **真机验证 frida-dexdump**：装新 APK → 设置 → Frida 点一次安装 → 确认日志出现 `FRIDA_DEXDUMP_OK` 且 `/usr/local/bin/frida-dexdump` 可执行。这是第八轮唯一没在真机跑过的项
 - [ ] **确定二改方向**：明确要改什么功能（改 UI？加工具？换 Provider？改 hook 目标 ROM？）
 
 ### 中优先级

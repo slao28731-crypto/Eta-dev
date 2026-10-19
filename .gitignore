@@ -45,6 +45,8 @@ google-services.json
 # Graphify 本地缓存与查询日志
 .graphify_cache/
 .graphifyignore
+# Python 校验脚本的字节码缓存
+__pycache__/
 
 # 签名密钥与推送脚本：含明文口令，绝不入库
 .keys/

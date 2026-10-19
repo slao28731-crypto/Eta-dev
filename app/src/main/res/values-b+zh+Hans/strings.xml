@@ -981,7 +981,7 @@
   <string name="linux_apk_tools_ready">JADX、Apktool、smali、baksmali、aapt2 与 apksigner 已就绪</string>
   <string name="linux_apk_tools_summary">安装正式版 OpenJDK 25，以及最新正式版 JADX、Apktool、smali、baksmali、aapt2 与 apksigner 工具链；需预留 768 MB</string>
   <string name="linux_frida_tools">Frida 动态插桩</string>
-  <string name="linux_frida_tools_summary">安装 Frida 17.24.2 server（以 root 身份在设备上运行）与 Linux 环境内的 frida-tools 命令行工具；需预留 400 MB。未安装时无法进行运行时 Hook、脱壳与内存改写。</string>
+  <string name="linux_frida_tools_summary">安装 Frida 17.24.2 server（以 root 身份在设备上运行）与 Linux 环境内的 frida-tools、frida-dexdump 命令行工具；需预留 400 MB。未安装时无法进行运行时 Hook、脱壳与内存改写。</string>
   <string name="linux_frida_tools_ready">Frida server 与 CLI 已就绪，监听 127.0.0.1:8899</string>
   <string name="linux_frida_stopped">Frida server 已停止</string>
   <string name="linux_frida_start">启动</string>

@@ -57,6 +57,12 @@ internal object FridaPaths {
     const val TOOLS_VERSION = "14.11.0"
 
     /**
+     * 脱壳用的 frida-dexdump。2.0.1 是 2022 年的最后一版，依赖 `click` / `frida-tools` /
+     * `wallbreaker` 且**不带版本上限**，因此会复用上面已装好的 frida 17.24.2，不会把 frida 拖到别的版本。
+     */
+    const val DEXDUMP_VERSION = "2.0.1"
+
+    /**
      * **下载/解压的暂存目录**，不是 server 的运行位置。
      *
      * 私有目录是 `drwx------`（0700，属主 App uid）。同一份 etad 放这里运行时，
@@ -359,12 +365,16 @@ internal class FridaInstaller(
         "PY=; for c in /usr/local/bin/python3 /usr/bin/python3 /opt/eta/python/*/bin/python3 python3; do " +
             "if [ -x \"\$c\" ] || command -v \"\$c\" >/dev/null 2>&1; then PY=\"\$c\"; break; fi; done; " +
             "if [ -z \"\$PY\" ]; then echo FRIDA_NO_PYTHON; exit 66; fi; echo FRIDA_PYTHON=\$PY; " +
-            // 版本已对上就跳过 pip：重装一次要下 30MB，按钮不该每次点都卡半天。
+            // 跳过 pip 的条件是「frida 版本对上 **且** 脱壳工具已可导入」。只查 frida 版本会漏掉
+            // 老用户：他们升级前就装过 CLI，版本判断通过后再也不会补装 frida-dexdump，
+            // 现象是脱壳第一步永远缺工具。
             "if \"\$PY\" -c 'import frida,sys; sys.exit(0 if frida.__version__==\"${FridaPaths.VERSION}\" else 1)' " +
-            ">/dev/null 2>&1; then echo FRIDA_CLI_ALREADY=" +
+            ">/dev/null 2>&1 && \"\$PY\" -c 'import frida_dexdump' >/dev/null 2>&1; then " +
+            "echo FRIDA_CLI_ALREADY=" +
             "\$(\"\$PY\" -c 'import frida;print(frida.__version__)'); " +
             "else \"\$PY\" -m pip install --quiet --break-system-packages --ignore-installed " +
             "frida==${FridaPaths.VERSION} frida-tools==${FridaPaths.TOOLS_VERSION} " +
+            "frida-dexdump==${FridaPaths.DEXDUMP_VERSION} " +
             "|| { echo FRIDA_PIP_FAILED; exit 67; }; fi; " +
             // uv 把脚本装在解释器同级 bin，pip 在 /usr/bin；两边都找一遍。
             "CLI=; for d in \"\${PY%/*}\" /usr/local/bin /usr/bin /opt/eta/python/*/bin; do " +
@@ -374,10 +384,14 @@ internal class FridaInstaller(
             "mkdir -p /usr/local/bin; " +
             "for t in frida frida-ps frida-trace frida-ls-devices frida-discover frida-kill " +
             "frida-ls frida-rm frida-run frida-compile frida-create frida-join frida-pull " +
-            "frida-push frida-apk frida-itrace frida-strace frida-pm; do " +
+            "frida-push frida-apk frida-itrace frida-strace frida-pm frida-dexdump; do " +
             "if [ -x \"\${CLI%/*}/\$t\" ]; then ln -sf \"\${CLI%/*}/\$t\" \"/usr/local/bin/\$t\"; fi; done; " +
             // 复核用绝对路径，不用 command -v：命令行的 PATH 未必含 /usr/local/bin（实测会误报）。
             "if [ ! -x /usr/local/bin/frida-ps ]; then echo FRIDA_CLI_NOT_LINKED; exit 69; fi; " +
+            // 脱壳工具只报告不判死：它装不上不该让整条 Frida 退回不可用状态，
+            // frida-ps 能用说明插桩链路本身没问题。
+            "if [ -x /usr/local/bin/frida-dexdump ]; then echo FRIDA_DEXDUMP_OK; " +
+            "else echo FRIDA_DEXDUMP_MISSING; fi; " +
             "echo FRIDA_CLI_OK"
 
     /**

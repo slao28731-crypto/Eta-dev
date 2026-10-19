@@ -15,6 +15,7 @@
 | **二改功能开发** | ✅ **已验收五轮**：抽屉/配色轮 + 顶栏图标轮 + MCP 自助管理轮 + MCP 额度修复轮 + 删除 demo 轮 |
 | **逆向 skill 内置** | ✅ 第六轮已验收：`re-mobile`（默认开）+ `re-pc`（默认关），33 个 reference 全部 ≤ 49,504 字 |
 | **Frida 内置** | ✅ **第七轮已验收**：server 跑在 `/data/local/tmp/eta-frida`（755），attach 实测成功。详见下方「第七轮」段 |
+| **脱壳 dexdump** | ✅ **第八轮已改**：`frida-dexdump 2.0.1` 随 Frida 一起装；SKILL 删掉不存在的 ARM64 aapt2 路线、加 Root 前置判定。真机未验 |
 
 ## 逆向 skill 内置（新增能力，待验收）
 
@@ -72,7 +73,7 @@ lief 1.0.0             pip --break-system-packages
 
 **已知限制**
 
-- **Frida 未装**：`frida-server` 需常驻后台、需版本匹配目标 gadget、会被省电策略杀，单独一轮做。当前 skill 里明确写了「先 `command -v frida` 探活，没有就问用户」。
+- **Frida 已内置（第七轮）**：`frida-server` 由 App 自己下载校验起在 `/data/local/tmp/eta-frida`，UI 有 Start/Stop。**不做开机自启**（常驻耗电，且回到「本机手工配置」老路）。详见下方「第七轮」段
 - **aapt2 回编译有已知坑**：`public.xml` 里 `$` 开头的资源名（apktool 解包副作用）会导致编译失败，需改用 `--copy-original`。已写进 SKILL.md 的「两个已知陷阱」。
 - **PC 端 skill 是方案性质**：Eta 跑在 Android 上，`.sys` 驱动、DLL 注入、x64dbg attach 都做不了。`re-pc/SKILL.md` 开头已用 ✅/❌ 明写能做与做不到，定位是「给电脑端可执行方案 + 审回传结果」。静态分析（PE/ELF）在手机上真能做。
 
@@ -135,15 +136,46 @@ Agent 自己就能添加 MCP 服务器，不需要用户进设置页。6 个工�
 
 ## 下一步（最重要）
 
-**七轮全部验收通过，当前无进行中任务。**
+**八轮全部完成，当前无进行中任务。等用户发下一道指令。**
 
 第五轮验收（删除 demo 目录）用户原话：「刚刚我去Github仓库看了一下，demo文件夹里面都是之前用的HTML预览图，请你删除这个文件夹和内容，以后预览图只在本地生成」。
 第六轮用户定调：「按照你推荐进行」= 530KB 全量切分 + A/C 工具组 + 解掉回编译限制。**已验收**。
 第七轮用户定调：「我要的是内置到App当中去，而不是装在我的本机上，你装在我的本机上别人如何使用呢？」——这是本轮最重要的纠偏。**已验收**，见下方「第七轮」段的终态记录。
+第八轮用户定调：「做，做完停下来我还有事情」——按我列出的性价比排序只做了前 3 项（都是小改动），第 4 项 mitmproxy、第 6 项 aarch64 aapt2 未做，见下方「第八轮」。
+
+### 第八轮做了什么（2026-10-19）
+
+| # | 改动 | 文件 |
+|---|---|---|
+| 1 | 装 `frida-dexdump 2.0.1`，跳过 pip 的条件加入 `import frida_dexdump` 判定 | `FridaInstaller.kt` |
+| 2 | SKILL.md 删掉「从 Google Maven 拉 ARM64 aapt2」这条**不存在**的路线，改成「资源回编译只能去电脑」 | `re-mobile/SKILL.md` 第 8 步 |
+| 3 | SKILL.md 开头新增「第 0 步：先确认有没有 Root」，无 Root 明确降级为纯静态 | `re-mobile/SKILL.md`、`AgentPromptBuilder.kt` |
+| 4 | Unity IL2CPP 段加边界说明（Il2CppDumper 是 .NET 程序，手机装不上） | `game-engines.md` |
+| 5 | 新增 `ci/verify_frida_cli.py` 并接入 `build-apk.yml` 第一步 | `ci/`、`.github/workflows/build-apk.yml` |
+| 6 | 中英文 Frida 文案补上 `frida-dexdump` | `strings.xml` × 2 |
+
+**起因**：用户问「内置的工具和 skill 够不够用」，我逐条比对源码后发现四处缺口，其中两处是**文档比代码跑得更远**——SKILL 写「先试 frida-dexdump」但工具没装；SKILL 写「等 Eta 换成 ARM64 aapt2」但那个包根本不存在。这类脱节比缺功能更危险，因为它会让 Agent 走进死路。
+
+**本轮踩的坑（必须记住）**
+
+第一次用 `edit_file` 改 `installCliCommand()` 时，old 块匹配失败但**整个字符串体被删空，只留下一个 `android` 字样**。肉眼读 diff 完全看不出问题，只有把 Kotlin 反解成真实 shell 串才能发现。所以才写了 `ci/verify_frida_cli.py`——它会：
+
+1. 从 Kotlin 源码反解真实命令（含 `\$` 字面美元符用哨兵处理，避免被模板正则误吃）
+2. `bash -n` / `dash -n` / `sh -n` 三份语法校验
+3. 沙箱跑两个分支：老用户（frida 在、dexdump 缺）必须走 pip；已装全必须走 `FRIDA_CLI_ALREADY`
+
+**改这个文件之后一定要跑 `python3 ci/verify_frida_cli.py`。**
+
+### 第八轮没做的（性价比排序里排 4、6 的两项）
+
+| 未做项 | 内容 | 建议 |
+|---|---|---|
+| mitmproxy 抓 HTTPS | `protocol-capture.md` 只有 pinning 绕过思路，没有抓包器安装 + 系统证书落地步骤 | 用户要真抓加密流量时再做 |
+| 资源回编译根治 | 自建 aarch64 aapt2（交叉编译 AOSP） | 大工程，工期以天计，除非确有改资源硬需求 |
 
 ---
 
-## ⚠️ 第七轮：Frida 内置（代码已定稿，待编译 + 真机验收）
+## ✅ 第七轮：Frida 内置（已验收，终态见下）
 
 ### 用户的核心要求（务必遵守）
 
@@ -357,6 +389,9 @@ Thank you for using Frida!
 | MCP 工具名格式 | `mcpModelToolName()`（**唯一实现，别复制**） | `agent/mcp/McpRunContext.kt` |
 | 新 MCP 默认启用策略 | `enableAllDiscoveredTools` 参数 | `agent/mcp/McpServerManager.kt` |
 | MCP 脱敏豁免名单 | `mcpManagementTools` | `agent/model/AgentSensitiveToolPolicy.kt` |
+| 脱壳工具版本 | `FridaPaths.DEXDUMP_VERSION`（`2.0.1`） | `agent/terminal/FridaInstaller.kt` |
+| Frida 安装命令本体 | `installCliCommand()`（**改完必须跑 `python3 ci/verify_frida_cli.py`**） | 同上 |
+| 逆向 skill 的 Root 前置判定 | `re-mobile/SKILL.md` 开头「第 0 步」 | `assets/builtin_skills/re-mobile/` |
 
 原型（**均不再入库**，需要时临时本地生成）：深色调色台（原 `demo/dark-palette.html`）、会话历史图标调参（原 `demo/topbar-v2.html`）、顶栏图标总览（原 `demo/topbar-icons.html`）。
 
@@ -370,7 +405,8 @@ Thank you for using Frida!
 | 4 个文件图谱不全 | `AgentContextCompactor.kt` / `AgentToolBatchRecovery.kt` / `MarkdownInline.kt` / `AgentRuntimeWireTest.kt`，查这些要直接读源码 |
 | 仓库是 public | Eta 上游是 PolyForm Noncommercial 1.0.0，限制二次分发。**用户已明确决定保持 public，不要重复建议转 private** |
 | 签名只有一份 | keystore 在 `/sdcard/Download/eta_out/eta-release.jks`，**尚未做离线多份备份** |
-| 无真机验证记录 | Xposed / 无障碍 / 终端 / MCP 都还没在真机上实测过 |
+| 真机验证覆盖不全 | Frida（第七轮）、逆向 skill、MCP、APK 工具链均已真机跑过；**Xposed 模块加载 / 无障碍服务 / 终端会话仍未系统实测** |
+| 无 Root 即断动态链 | Frida server 必须 root 起，无 Root 设备只能做静态分析；SKILL 第 0 步已写明，别让 Agent 逐条试 |
 
 ---
 
@@ -451,4 +487,4 @@ git push origin clean:main
 
 ---
 
-_最后更新：2026-10-19_
+_最后更新：2026-10-19（第八轮：frida-dexdump + SKILL 纠错 + Root 前置判定）_

@@ -5,6 +5,26 @@ description: Android/iOS 逆向与游戏分析方法论。APK/IPA 拆解、jadx 
 
 # Android 逆向与游戏分析
 
+## 第 0 步：先确认这台设备有没有 Root
+
+**这一步不跳过。** Frida 的 server 必须用 root 起（`FridaInstaller` 里 `RootAccess.isGranted` 为假直接返回 `RootRequired`），
+没有 Root 时动态分析整条链都是不通的，硬试只会让用户看到一串必然失败的指令。
+
+```bash
+# 探活顺序不要颠倒
+command -v frida frida-ps frida-dexdump   # Linux 环境内
+su -c 'id'                                 # 确认 root 真的能拿到
+```
+
+| Root 状态 | 能做什么 | 不能做什么 |
+|---|---|---|
+| **有 Root** | 全部：静态 + Frida attach + 脱壳 + 内存读写 + 改 smali 后签名装回 | — |
+| **无 Root** | `apktool d` 解包、`jadx` 反编译、ELF 静态分析、capstone/lief 改二进制 | Frida attach、脱壳、内存读写、**改完 dex 签名装回**（签名不同会 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`） |
+
+**无 Root 时直接告诉用户「这台设备只能做静态分析」**，把范围说清楚，不要一条条试过去。
+
+---
+
 ## 先看这一条：本机环境已经装好什么
 
 **不要教用户自己编译 apktool、不要让他去装 jadx。本机已就位。** 动手前直接按这张表选执行环境：
@@ -16,6 +36,8 @@ description: Android/iOS 逆向与游戏分析方法论。APK/IPA 拆解、jadx 
 | dex ↔ smali 互转 | `environment=linux` | `baksmali` / `smali 3.0.10` | ✅ 已实测可用（8.9MB dex 往返成功） |
 | APK 签名 | `environment=linux` | `apksigner 0.9` | ✅ 已实测可用 |
 | **APK 资源回编译** | — | `aapt2 2.19` + `apktool 3.0.3` | ❌ **走不通**，版本不匹配，见第 8 步路线 B |
+| 动态 Hook（Java + Native） | `environment=linux` | `frida 17.24.2` + `frida-tools 14.11.0` + server 127.0.0.1:8899 | ✅ 真机 attach 成功 |
+| 脱壳 dump dex | `environment=linux` | `frida-dexdump 2.0.1` | ✅ 已随 Frida 一起安装 |
 | 分析 `.so` / ELF | `environment=linux` | `readelf` `objdump` `nm` `strings` `file` `hexdump` `xxd` | ✅ 已实测可用（binutils 2.44） |
 | 写脚本解析汇编、改 ELF | `environment=linux` | `python3 3.14` + `capstone 5.0.7` + `lief 1.0.0` | ✅ 已实测可用 |
 | 抓包 / 改包 | `environment=linux` | `python3` `curl` `openssl` `node` | 部分可用 |
@@ -27,6 +49,8 @@ description: Android/iOS 逆向与游戏分析方法论。APK/IPA 拆解、jadx 
 ```bash
 # Linux 环境里确认 APK 工具链
 command -v jadx apktool smali baksmali aapt2 apksigner readelf objdump
+# Frida 三件套（dexdump 是脱壳用的，装不上不影响插桩）
+command -v frida frida-ps frida-dexdump
 ```
 
 如果 `jadx` 不存在 → 告诉用户「在 设置 → 终端 → Linux 环境 → APK 分析工具 里安装」，**不要自己从 GitHub 下 jadx 往里塞，也不要在 Linux 环境里手动 `apt install`（会和 Eta 的 profile 校验冲突）**。
@@ -165,7 +189,7 @@ lib.write("libgame_patched.so")
 
 **Frida 是 App 内置能力，让用户点按钮装，不要自己 `adb push`。**
 
-装在哪：`设置 → 终端 → Linux 环境 → Frida 动态插桩`，点一次「安装」就行。App 会自己完成：下载对应的 `frida-server-17.24.2-android-<abi>.xz` → SHA256 校验 → 解压到 App 私有目录 `filesDir/frida/etad` → **复制到 `/data/local/tmp/eta-frida/etad` 并 chmod 755** → 在 Debian 侧 pip 装 `frida==17.24.2` + `frida-tools==14.11.0` → 用 root 起 server → `frida-ps` 连通验证。装完之后同一个按钮变成「启动 / 停止」，**不做开机自启**，用完点停止，省电也少留痕迹。
+装在哪：`设置 → 终端 → Linux 环境 → Frida 动态插桩`，点一次「安装」就行。App 会自己完成：下载对应的 `frida-server-17.24.2-android-<abi>.xz` → SHA256 校验 → 解压到 App 私有目录 `filesDir/frida/etad` → **复制到 `/data/local/tmp/eta-frida/etad` 并 chmod 755** → 在 Debian 侧 pip 装 `frida==17.24.2` + `frida-tools==14.11.0` + `frida-dexdump==2.0.1` → 用 root 起 server → `frida-ps` 连通验证。装完之后同一个按钮变成「启动 / 停止」，**不做开机自启**，用完点停止，省电也少留痕迹。
 
 > **server 必须跑在 `/data/local/tmp/eta-frida/`，不能直接跑在 `filesDir`。** 私有目录是 `drwx------`（0700），etad 从那里启动时 attach 任何进程都会 `bootstrapper crashed with signal 11`（连 `busybox sleep` 这种最简 root 进程也一样）；同一份二进制搬到 755 的 `/data/local/tmp/eta-frida/` 后 attach 立刻正常。`filesDir/frida/etad` 只作为下载落地的原件保留，运行时用的是 runtime 那份。
 
@@ -240,10 +264,24 @@ Stalker.follow(Process.getCurrentThreadId(), {
 
 **顺序**：
 
-1. **先试 Frida dump dex**（`frida-dexdump`，需 frida 可用）——能过大部分一代壳
+1. **先试 `frida-dexdump`**——已随 Frida 一起安装（`/usr/local/bin/frida-dexdump`），能过大部分一代壳
 2. Frida 被检测 → 用 root + 内存 dump 整个 dex
 3. 还不行 → 上 Xposed/LSPosed 模块级 Hook（本机 LSPosed 已可用）
 4. 企业级壳 → 基本只能从 `.so` 下手，`.dex` 放弃
+
+```bash
+# 1.1 探活：没装就别硬往下走
+command -v frida-dexdump || echo "需先在设置里点 Frida 的安装按钮"
+
+# 1.2 dump（-H 必须显式带端口，8899 不是默认 27042）
+frida-dexdump -H 127.0.0.1:8899 -U -f com.target.app -o ./dumped
+
+# 1.3 产出是若干 dex，用 jadx 逐个反编译
+for f in dumped/*.dex; do jadx -d "jout_$(basename "$f" .dex)" --no-res "$f"; done
+```
+
+**`frida-dexdump` 装不上不影响 Frida 本体**——安装脚本里它单独 `echo FRIDA_DEXDUMP_MISSING` 但不判死，
+`frida-ps` 能用就说明插桩链路是好的，只是脱壳少了这条捷径。
 
 **知识不在 skill 里解决**，这是工具问题。如果工具不具备，**直接告诉用户缺什么**，不要假装能做。
 
@@ -345,9 +383,14 @@ pm install -r /sdcard/xxx/signed.apk
 | apktool | 3.0.3 | 依赖新版 aapt2 的参数 |
 | Google 官方 aapt2 | 需 ≥ 8.0 | 才能配 apktool 3.x |
 
-**先告诉用户这个限制，不要硬试。** 如果一定要改资源，两条出路：
-1. 在电脑上用 Android SDK 的 aapt2 回编译，再把产物拷回来
-2. 等 Eta 侧换成从 Google Maven 拉 ARM64 版 aapt2（`com.android.tools.build:aapt2:*-linux.jar` 里有 `aapt2` 二进制）
+**先告诉用户这个限制，不要硬试。** 如果一定要改资源，唯一的做法是**在电脑上做**：
+
+1. 电脑装 Android SDK（`aapt2` 随 build-tools 提供），用 apktool 3.x 回编译 `res/`
+2. 产物（编译后的 `resources.arsc` 与 `res/` 变更）拷回手机，用 `zip` 替换进 APK，再 `apksigner` 签名
+
+**别在手机上找 ARM64 版 aapt2——它不存在。** Google 官方 Maven（`com.android.tools.build:aapt2`）只发
+`linux`（x86_64）、`osx`、`windows` 三份，没有 aarch64。Eta 现在用的 `aapt2 2.19` 是 Debian
+`android-sdk-build-tools` 提供的，版本就是配不上 apktool 3.x，这不是配置问题、换包就能解决的事。
 
 #### apktool 解码阶段的两个坑（这个环节是能用的）
 
@@ -365,6 +408,7 @@ pm install -r /sdcard/xxx/signed.apk
 | Frida `attach` 报 `unable to find process` | 进程有反调试或 frida-server 版本不匹配 | 查版本、查 `/proc/<pid>/status` 的 TracerPid |
 | `ptrace` 一直被拒绝 | 已有别的调试器占用 / 内核限制 | 换个方式，别在同一进程上叠加 |
 | `apktool b` 报 `unknown option '--no-compile-sdk-metadata'` | Debian aapt2 2.19 太老，配不上 apktool 3.0.3 | 改走路线 A（dex 直换），别在资源回编译上耗 |
+| `frida-dexdump: not found` | Frida 装了但脱壳工具没装（老版本升级上来常见） | 让用户重新点一次 Frida 的「安装」按钮，脚本会补装 |
 | `apktool b` 报 `invalid entry name '$ic_splash_animated__N'` | Compose 动画的资源名，`$` 不被 aapt2 接受 | 同样走路线 A；`--copy-original` 绕不过 |
 | `apktool b` 报 `Syntax error: "(" unexpected` | aapt2 被复制到 /tmp 丢了 x 位 | `--aapt` 传 wrapper，不要传二进制本体 |
 | `smali` 编译报寄存器越界 | 改 smali 时加了指令但没加 `.registers` | 把 `.registers` 数字调大（多余寄存器无害） |

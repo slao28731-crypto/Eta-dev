@@ -13,6 +13,34 @@
 
 ## Unity IL2CPP
 
+> ### ⚠️ 手机端做不了类型还原，先看这一段
+>
+> 把 `libil2cpp.so` + `global-metadata.dat` 还原成 C# 类名 / 字段 / 方法签名，靠的是
+> **Il2CppDumper**——它是 **.NET 程序**（`Il2CppDumper.exe` / 需要 .NET runtime），
+> **Eta 的 Linux rootfs 里没有 .NET，装不上**。下面的 Il2CppDumper 流程全部是**电脑端**操作。
+>
+> 手机上实际能做的是这四件：
+>
+> | 能做 | 怎么做 |
+> |---|---|
+> | 认出是 IL2CPP | `ls lib/arm64-v8a/` 有 `libil2cpp.so` + `assets/bin/Data/Managed/Metadata/global-metadata.dat` |
+> | 拿字符串线索 | `strings -n 6 global-metadata.dat \| grep -i 关键词`（元数据里的标识符是**明文**的，这一步手机能做） |
+> | 定位函数地址 | `readelf -sW libil2cpp.so \| grep -i 关键词`；符号被 strip 时用 `strings -t x` 拿偏移再 `objdump -d` |
+> | 运行时验证 | Frida attach 后按地址 `Interceptor.attach`，看参数和返回值对不对 |
+>
+> **要完整还原 dump.cs，只能把这两个文件拷到电脑上跑 Il2CppDumper，再把 `dump.cs` / `script.json` 回传手机。**
+> 别在手机上找 .NET 替代品，没有。
+>
+> 回传产物格式（让用户在电脑上按这个交给你）：
+>
+> ```
+> dump.cs       类/方法/字段声明，最大的那个文件
+> script.json   方法名 → 地址映射，Frida 与 Ghidra 都用它
+> stringliteral.json  字符串字面量
+> ```
+>
+> 拿到 `script.json` 之后手机端就能接上：`jq` 查方法地址 → Frida 按地址 Hook → 验证逻辑。
+
 ### IL2CPP 编译流程
 
 ```

@@ -999,7 +999,7 @@
   <string name="linux_apk_tools_ready">JADX, Apktool, smali, baksmali, aapt2 and apksigner are ready</string>
   <string name="linux_apk_tools_summary">Install stable OpenJDK 25 and the JADX, Apktool, smali, baksmali, aapt2 and apksigner toolchain; requires 768 MB of free space</string>
   <string name="linux_frida_tools">Frida dynamic instrumentation</string>
-  <string name="linux_frida_tools_summary">Install Frida 17.24.2 server (runs as root on this device) plus the frida-tools CLI inside the Linux environment; requires 400 MB of free space. Without this, runtime hooking, unpacking and memory editing are unavailable.</string>
+  <string name="linux_frida_tools_summary">Install Frida 17.24.2 server (runs as root on this device) plus frida-tools and frida-dexdump inside the Linux environment; requires 400 MB of free space. Without this, runtime hooking, unpacking and memory editing are unavailable.</string>
   <string name="linux_frida_tools_ready">Frida server and CLI are ready, listening on 127.0.0.1:8899</string>
   <string name="linux_frida_stopped">Frida server stopped</string>
   <string name="linux_frida_start">Start</string>

@@ -28,6 +28,12 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: 校验 Frida 安装命令
+        shell: bash
+        # 这条命令是几十段 Kotlin 字符串拼出来的，改一处就可能整段丢失或语法断裂。
+        # 之前出现过「文档写了能力、实际命令被删空」的脱节，所以放进 CI 每次构建都验一遍。
+        run: python3 ci/verify_frida_cli.py
+
       - name: 配置 JDK 25
         uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
         with:

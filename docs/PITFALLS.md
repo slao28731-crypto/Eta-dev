@@ -6,6 +6,25 @@
 
 ## 构建 / 工具链
 
+### P077 · `edit_file` 改长字符串拼接时，整段内容被删空只留一行乱入文字
+**现象**：改 `FridaInstaller.installCliCommand()`，看到的 diff 是「+1 -20」，替换结果只剩 `android` 一个字。**diff 里那一行看着像注释，肉眼读完全不会警觉**；只有把 Kotlin 反解成真实 shell 串才发现命令是空的。
+**根因**：`edit_file` 的 old 块匹配失败时的降级行为，把整块换成了模型最后输出的片段。
+**解法**：
+1. 改完这类「几十段字符串拼接」的代码，**必须反解成最终产物再看一眼**，不能只看 diff
+2. 已固化脚本：`python3 ci/verify_frida_cli.py`（反解 + 三种 shell 语法校验 + 两个分支场景），已接入 `build-apk.yml` 第一个步骤
+3. 同类高危写法：`APKTOOL_WRAPPER` / `AAPT2_WRAPPER` / `JAVA_WRAPPER`（`LinuxApkAnalysisInstaller.kt`），改动后同样要反解核对
+
+### P078 · 反解 Kotlin 命令串时，`\$` 被误当成模板占位符
+**现象**：写脚本抽取 shell 命令，报「未登记的 Kotlin 模板常量: PY%/*」。
+**根因**：Kotlin 里 `\$` 表示**字面美元符**，而 `${PY%/*}` 是 **shell** 的参数展开。用 `${...}` 正则直接扫，会把 shell 语法当成 Kotlin 模板。
+**解法**：反解时先把 `\$` 换成哨兵字符（如 `\x00D\x00`），模板替换完再还原。见 `ci/verify_frida_cli.py` 的 `unescape()` / `DOLLAR`。
+
+### P079 · `export PATH=...` 污染常驻终端会话，后面的 python3 全变成假脚本
+**现象**：在终端里 `export PATH=/tmp/sim/pybin:$PATH` 做分支测试，之后所有 `python3` 无声无输出（连 `print('hello')` 都空），`compgen` 显示 `/tmp/sim/pybin/python3`。**终端会话是常驻的，PATH 会带下去**。
+**根因**：测试沙箱里放了伪装成 `python3` 的 stub，PATH 顺序把它排在前面；且 stub 对未匹配参数静默 `exit 0`。
+**解法**：测试脚本里**不要 `export PATH`**，改成在 `subprocess.run(env=...)` 里传局部 PATH；受污染后 `export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin` 复位。
+**教训**：把假解释器放进 PATH 前面时，stub 的兜底分支必须是 `exit 1` 而不是 `exit 0`，否则失败会被伪装成成功。
+
 ### P001 · 改了两行 Kotlin 却编译失败，报 SDK / JDK 版本不符
 **现象**：`Unsupported class file major version` 或 Compose 编译器报版本不匹配。
 **根因**：项目锁死 JDK 25 + compileSdk 37 + AGP 9.4.1 + Kotlin 2.4.20。用了 JDK 17 或 SDK 35 就会炸。
