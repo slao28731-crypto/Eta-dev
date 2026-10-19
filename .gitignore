@@ -50,3 +50,9 @@ __pycache__/
 
 # 签名密钥与推送脚本：含明文口令，绝不入库
 .keys/
+
+# 写 commit message 时的临时文件，不要入库
+/docs/_m*.txt
+/ci/_m*.txt
+/ci/_msg.txt
+/docs/_msg.txt
