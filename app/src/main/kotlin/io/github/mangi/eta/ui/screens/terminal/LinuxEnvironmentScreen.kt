@@ -87,6 +87,7 @@ private enum class InstallTarget {
     KIMI,
     RE_LAB,
     ANGR,
+    ANDROID_SDK,
 }
 
 private data class PackageProfileUi(
@@ -143,6 +144,13 @@ private val packageProfileUis = listOf(
         titleRes = R.string.linux_angr_tools,
         summaryRes = R.string.linux_angr_tools_summary,
         readyRes = R.string.linux_angr_tools_ready,
+    ),
+    PackageProfileUi(
+        target = InstallTarget.ANDROID_SDK,
+        profile = LinuxPackageProfiles.ANDROID_SDK,
+        titleRes = R.string.linux_android_sdk_tools,
+        summaryRes = R.string.linux_android_sdk_tools_summary,
+        readyRes = R.string.linux_android_sdk_tools_ready,
     ),
 )
 

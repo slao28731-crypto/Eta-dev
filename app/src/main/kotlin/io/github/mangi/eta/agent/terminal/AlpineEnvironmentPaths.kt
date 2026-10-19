@@ -16,6 +16,8 @@ internal object AlpineEnvironmentPaths {
     const val RE_LAB_MARKER = ".eta-re-lab-ready"
     /** angr 符号执行单独一组：体积大（含 pyvex/pypcode/lief/cle），默认关。 */
     const val ANGR_MARKER = ".eta-angr-ready"
+    /** Android SDK + Gradle：ARM64 工具包 + android.jar + Gradle，可在手机上编 APK。 */
+    const val ANDROID_SDK_MARKER = ".eta-android-sdk-ready"
     const val TOOLSET_REVISION = 1
     // revision 2：补齐 ARM64 aapt2，解掉「只解码不回编译」的限制。
     const val APK_ANALYSIS_REVISION = 2
@@ -26,6 +28,7 @@ internal object AlpineEnvironmentPaths {
     const val KIMI_TOOLS_REVISION = 1
     const val RE_LAB_REVISION = 1
     const val ANGR_REVISION = 1
+    const val ANDROID_SDK_REVISION = 1
     // 两个新 profile 的 marker 说明见 LinuxPackageProfiles.RE_LAB / ANGR 的注释。
 
     fun environmentDir(context: Context): File =

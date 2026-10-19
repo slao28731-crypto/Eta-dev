@@ -994,6 +994,9 @@
   <string name="linux_angr_tools">angr 符号执行</string>
   <string name="linux_angr_tools_summary">安装 angr 及其依赖树（pyvex、pypcode、cle、lief）；需预留 900 MB。仅在大二进制上做符号执行与约束求解时才需要。</string>
   <string name="linux_angr_tools_ready">angr 已就绪</string>
+  <string name="linux_android_sdk_tools">Android SDK + Gradle</string>
+  <string name="linux_android_sdk_tools_summary">安装 ARM64 的 aapt2/aapt/aidl/zipalign/dexdump/adb/fastboot/sqlite3、android.jar（API 35）与 Gradle 9.8.1；需预留 250 MB。装完可在手机上真正执行 gradle assembleDebug 编出 APK——Google 官方不发 aarch64 版，这里用的是社区编译的 ARM64 工具包。</string>
+  <string name="linux_android_sdk_tools_ready">aapt2 / adb / Gradle / android.jar 已就绪，可编 APK</string>
   <string name="linux_python_tools_summary">安装最新正式版 uv；Python 版本和项目环境由 uv 按需下载与管理</string>
   <string name="linux_python_tools_ready">uv 与最新正式版 Python 已就绪</string>
   <string name="linux_python_tools_summary_debian">安装最新正式版 uv；Python 版本和项目环境由 uv 按需下载与管理</string>

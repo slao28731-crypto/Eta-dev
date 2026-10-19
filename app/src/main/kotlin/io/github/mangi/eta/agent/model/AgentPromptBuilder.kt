@@ -143,6 +143,15 @@ internal object AgentPromptBuilder {
                     "在 Linux 终端里执行必然失败。调用前先用 shell 查 " +
                     "/data/data/io.github.mangi.eta/files/android-ndk/.active 拿到当前版本槽名，" +
                     "可执行文件在该槽的 bin/clang；绝对不要在 environment=linux 下试 NDK。" +
+                    "**在手机上编译 APK 用「Android SDK + Gradle」这一项**（设置 → 终端 → Linux 环境）：" +
+                    "它装的是 ARM64 版 aapt2/aapt/aidl/zipalign/dexdump/adb/fastboot（社区编译，官方不发 aarch64）、" +
+                    "android.jar（API 35，纯 Java 存根）与 Gradle 9.8.1；" +
+                    "ANDROID_HOME=/opt/eta/android-sdk，gradle 已在 PATH，" +
+                    "且已写 android.aapt2FromMavenOverride 指向 ARM64 aapt2（Gradle 自带的那个是 x86 跑不了）。" +
+                    "直接用 environment=linux 跑 `gradle assembleDebug` 即可，不要用 apt 的 gradle 4.4.1（2017 年版，不认 Kotlin DSL）。" +
+                    "dex 转 jar 用 d2j-dex2jar（dex2jar 2.4，纯 Java）；" +
+                    "反编译 so 用 angr 命令行（`angr decompile x.so` / `angr disassemble x.so`，已在 PATH）；" +
+                    "dex 转 class 之外的分支用 d8/r8（/opt/eta/re-tools/r8-<ver>.jar）。" +
                     "读取图片内容调用 read_image；同一轮最多读取一张，观察返回内容后再读下一张。" +
                     executionContext?.let { "\n" + it.description(rootAvailable) }.orEmpty(),
             ))

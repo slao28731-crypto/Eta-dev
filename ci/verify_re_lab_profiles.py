@@ -196,10 +196,11 @@ def check_profiles() -> list:
     failures = []
     src = KT.read_text(encoding="utf-8")
 
-    if "listOf(PYTHON, NODE, SSH, KIMI, RE_LAB, ANGR)" not in src:
-        failures.append("ALL 没有列出 RE_LAB / ANGR")
+    if "listOf(PYTHON, NODE, SSH, KIMI, RE_LAB, ANGR)" not in src and \
+            "ANDROID_SDK)" not in src:
+        failures.append("ALL 没有列出 RE_LAB / ANGR / ANDROID_SDK")
     else:
-        print("  [ok] ALL 含 RE_LAB / ANGR")
+        print("  [ok] ALL 含 RE_LAB / ANGR（及 ANDROID_SDK）")
 
     for name in ("RE_LAB", "ANGR"):
         block_start = src.index(f"val {name} = LinuxPackageProfile(")

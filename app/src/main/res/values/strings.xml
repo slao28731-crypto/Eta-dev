@@ -1012,6 +1012,9 @@
   <string name="linux_angr_tools">angr symbolic execution</string>
   <string name="linux_angr_tools_summary">Install angr and its dependency tree (pyvex, pypcode, cle, lief); requires 900 MB of free space. Only needed for symbolic execution and constraint solving on large binaries.</string>
   <string name="linux_angr_tools_ready">angr is ready</string>
+  <string name="linux_android_sdk_tools">Android SDK + Gradle</string>
+  <string name="linux_android_sdk_tools_summary">Install ARM64 builds of aapt2/aapt/aidl/zipalign/dexdump/adb/fastboot/sqlite3, android.jar (API 35) and Gradle 9.8.1; requires 250 MB. Afterwards you can run gradle assembleDebug on the phone and get a real APK — Google ships no aarch64 build, so this uses a community-compiled ARM64 toolset.</string>
+  <string name="linux_android_sdk_tools_ready">aapt2 / adb / Gradle / android.jar are ready; APK builds are possible</string>
   <string name="linux_python_tools_summary">Install the latest stable uv; uv downloads and manages Python versions and project environments as needed</string>
   <string name="linux_python_tools_ready">uv and the latest stable Python are ready</string>
   <string name="linux_python_tools_summary_debian">Install the latest stable uv; uv downloads and manages Python versions and project environments as needed</string>

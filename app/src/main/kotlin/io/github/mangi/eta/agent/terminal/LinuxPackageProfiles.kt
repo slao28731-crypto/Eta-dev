@@ -264,6 +264,50 @@ internal object LinuxPackageProfiles {
     private const val R8_URL =
         "https://dl.google.com/dl/android/maven2/com/android/tools/r8/$R8_VERSION/r8-$R8_VERSION.jar"
 
+    /** dex2jar 的版本与下载地址。纯 Java 实现，跨架构。 */
+    private const val DEX2JAR_VERSION = "2.4"
+    private const val DEX2JAR_URL =
+        "https://github.com/pxb1988/dex2jar/releases/download/v$DEX2JAR_VERSION/dex-tools-v$DEX2JAR_VERSION.zip"
+
+    /**
+     * dex2jar：dex → jar。
+     *
+     * **它是纯 Java 实现**（`d2j-dex2jar.sh` 最后一行就是 `java -classpath ... Dex2jarCmd`），
+     * 没有任何原生二进制，所以在 aarch64 上直接能跑 —— 实测
+     * `classes.dex (880 字节) → out.jar (402 字节)`。
+     *
+     * 包里带 18 个工具，常用的三个：
+     * - `d2j-dex2jar`  dex 转 jar
+     * - `d2j-dex2smali` dex 转 smali（比 baksmali 快）
+     * - `d2j-apk-sign`  给 APK 签名
+     *
+     * 注意：本脚本引用 [DEX2JAR_URL]，那两个常量必须在它**之前**声明
+     * （Kotlin object 按声明顺序初始化，P081）。
+     */
+    private const val DEX2JAR_SCRIPT =
+        "set -e; " +
+            "root=/opt/eta/re-tools/dex-tools; ver=" + DEX2JAR_VERSION + "; " +
+            "if [ ! -x \"\$root/d2j-dex2jar.sh\" ]; then " +
+            "mkdir -p /opt/eta/re-tools /opt/eta/cache || exit 87; " +
+            "z=\"/opt/eta/cache/dex-tools-v\$ver.zip\"; " +
+            "if [ ! -s \"\$z\" ]; then " +
+            "curl -fsSL --retry 3 --max-time 600 -o \"\$z.part\" '" + DEX2JAR_URL + "' || { rm -f \"\$z.part\"; exit 88; }; " +
+            "mv \"\$z.part\" \"\$z\" || exit 88; fi; " +
+            "[ -s \"\$z\" ] || exit 88; " +
+            "rm -rf /opt/eta/cache/dex-tools-extract /opt/eta/re-tools/dex-tools; mkdir -p /opt/eta/cache/dex-tools-extract || exit 89; " +
+            "unzip -q -o \"\$z\" -d /opt/eta/cache/dex-tools-extract || exit 89; " +
+            "src=\$(find /opt/eta/cache/dex-tools-extract -maxdepth 1 -type d -name 'dex-tools*' | head -1); " +
+            "[ -n \"\$src\" ] || exit 89; " +
+            "mv \"\$src\" /opt/eta/re-tools/dex-tools || exit 89; " +
+            "rm -rf /opt/eta/cache/dex-tools-extract \"\$z\"; " +
+            "chmod 0755 /opt/eta/re-tools/dex-tools/*.sh 2>/dev/null || true; " +
+            "fi; " +
+            "[ -x \"\$root/d2j-dex2jar.sh\" ] || exit 90; " +
+            "for t in d2j-dex2jar d2j-dex2smali d2j-smali d2j-apk-sign d2j-baksmali; do " +
+            "if [ -f \"\$root/\$t.sh\" ]; then ln -sf \"\$root/\$t.sh\" /usr/local/bin/\$t; fi; done; " +
+            "\"\$root/d2j-dex2jar.sh\" --version >/dev/null 2>&1 || exit 90; " +
+            "echo DEX2JAR_OK"
+
     /** pip 侧逐包一步。`--break-system-packages` 是 Debian trixie 的 PEP 668 硬要求。 */
     private val RE_LAB_PIP_STEPS = listOf(
         // 钉 5.1.0.0 而不是装最新版：angr 10.0.4 的元数据里写的是
@@ -278,9 +322,14 @@ internal object LinuxPackageProfiles {
         LinuxPackageStep("mitmproxy", "python3 -m pip install --quiet --break-system-packages --upgrade mitmproxy", "mitmproxy 依赖较多，网络慢时耗时较长"),
         LinuxPackageStep("androguard", "python3 -m pip install --quiet --break-system-packages --upgrade androguard", "androguard 是纯 Python，装不上时通常是网络问题"),
         LinuxPackageStep(
+            label = "dex2jar",
+            command = DEX2JAR_SCRIPT,
+            failureHint = "dex2jar 下载失败（19MB，来自 GitHub）；它是纯 Java 实现，装上后用 d2j-dex2jar 把 dex 转 jar",
+        ),
+        LinuxPackageStep(
             label = "命令行入口",
             command = renderCliLinksCommand(
-                listOf("mitmdump", "mitmproxy", "mitmweb", "objection", "apkid", "androguard", "androarsc", "androaxml", "r2", "radare2"),
+                listOf("mitmdump", "mitmproxy", "mitmweb", "objection", "apkid", "androguard", "androarsc", "androaxml", "r2", "radare2", "angr"),
             ),
             failureHint = "工具已装上但入口没找到，检查 /opt/eta/python 下的 bin 目录是否存在",
         ),
@@ -385,6 +434,242 @@ internal object LinuxPackageProfiles {
         ),
     )
 
+    // ---- Android SDK 的实现常量与脚本 ----
+
+    private const val ANDROID_BUILD_TOOLS_VERSION = "35.0.0"
+    private const val ANDROID_PLATFORM_API = "35"
+
+    /** 社区编译的 ARM64 原生工具包（官方不发 aarch64 版）。 */
+    private const val ANDROID_ARM64_TOOLS_URL =
+        "https://github.com/lzhiyong/android-sdk-tools/releases/download/35.0.2/android-sdk-tools-static-aarch64.zip"
+
+    /** 官方 platform 包，只取里面的 android.jar。 */
+    private const val ANDROID_PLATFORM_URL =
+        "https://dl.google.com/android/repository/platform-35_r02.zip"
+
+    private const val GRADLE_VERSION = "9.8.1"
+    private const val GRADLE_DOWNLOAD_URL =
+        "https://services.gradle.org/distributions/gradle-$GRADLE_VERSION-bin.zip"
+    private const val GRADLE_SHA256 =
+        "dce76f55f8e251a3a1f130eb120f30b3d271de2b76c9b0729d316b5a1b6dc01f"
+
+    /**
+     * Android SDK 的分步安装计划。
+     *
+     * 顺序不能乱：
+     * 1. 探活基础工具（后面全靠 curl/unzip/sha256sum）
+     * 2. 下 ARM64 原生工具包，铺到 build-tools 与 platform-tools
+     * 3. 下 platform 包，只抽 android.jar（27MB，其余是文档样例）
+     * 4. 下 Gradle 并解到 /opt/eta/gradle/
+     * 5. 写环境变量与 aapt2FromMavenOverride
+     * 6. 自检四个入口
+     */
+    private val ANDROID_SDK_STEPS = listOf(
+        LinuxPackageStep(
+            label = "基础工具",
+            command = "command -v curl >/dev/null && command -v unzip >/dev/null && command -v sha256sum >/dev/null",
+            failureHint = "缺 curl/unzip/sha256sum，先装好基础环境",
+        ),
+        LinuxPackageStep(
+            label = "ARM64 工具包",
+            command = ANDROID_ARM64_TOOLS_SCRIPT,
+            failureHint = "ARM64 工具包下载失败（14MB，来自 GitHub），网络恢复后重试",
+        ),
+        LinuxPackageStep(
+            label = "android.jar",
+            command = ANDROID_PLATFORM_SCRIPT,
+            failureHint = "platform 包下载失败（64MB，来自 dl.google.com），网络恢复后重试",
+        ),
+        LinuxPackageStep(
+            label = "Gradle",
+            command = GRADLE_SCRIPT,
+            failureHint = "Gradle 下载失败（151MB，来自 services.gradle.org），网络恢复后重试",
+        ),
+        LinuxPackageStep(
+            label = "环境变量",
+            command = ANDROID_ENV_SCRIPT,
+            failureHint = "写入环境变量失败，检查 /opt/eta 与 /etc/profile.d 是否可写",
+        ),
+        LinuxPackageStep(
+            label = "运行自检",
+            command = ANDROID_VERIFY_SCRIPT,
+            failureHint = "组件都装了但跑不起来，多为动态库缺失",
+        ),
+    )
+
+    /**
+     * 下 ARM64 工具包并铺开。
+     *
+     * 为什么用 lzhiyong 的包：Google 不发 aarch64 版，这个仓库把
+     * aapt2/aapt/aidl/zipalign/dexdump/adb/fastboot/sqlite3 全编成了 ARM64 静态二进制，
+     * 实测在手机上直接跑（不需要 chroot，PRoot 里就行）。
+     */
+    private const val ANDROID_ARM64_TOOLS_SCRIPT =
+        "set -e; " +
+            "sdk=/opt/eta/android-sdk; mkdir -p \"\$sdk/build-tools/" + ANDROID_BUILD_TOOLS_VERSION + "\" \"\$sdk/platform-tools\" /opt/eta/cache || exit 61; " +
+            "z=/opt/eta/cache/android-sdk-tools-arm64.zip; " +
+            "if [ ! -s \"\$z\" ]; then " +
+            "curl -fsSL --retry 3 --max-time 600 -o \"\$z.part\" '" + ANDROID_ARM64_TOOLS_URL + "' || { rm -f \"\$z.part\"; exit 62; }; " +
+            "mv \"\$z.part\" \"\$z\" || exit 62; fi; " +
+            "[ -s \"\$z\" ] || exit 62; " +
+            "rm -rf /opt/eta/cache/android-tools-extract; mkdir -p /opt/eta/cache/android-tools-extract || exit 63; " +
+            "unzip -q -o \"\$z\" -d /opt/eta/cache/android-tools-extract || exit 63; " +
+            "src=/opt/eta/cache/android-tools-extract; " +
+            "cp -f \"\$src\"/build-tools/* \"\$sdk/build-tools/" + ANDROID_BUILD_TOOLS_VERSION + "/\" || exit 64; " +
+            "cp -f \"\$src\"/platform-tools/* \"\$sdk/platform-tools/\" || exit 64; " +
+            "if [ -d \"\$src/others\" ]; then cp -f \"\$src\"/others/* \"\$sdk/platform-tools/\" 2>/dev/null || true; fi; " +
+            "chmod 0755 \"\$sdk/build-tools/" + ANDROID_BUILD_TOOLS_VERSION + "/\"* \"\$sdk/platform-tools/\"* 2>/dev/null || exit 65; " +
+            "\"\$sdk/build-tools/" + ANDROID_BUILD_TOOLS_VERSION + "/aapt2\" version >/dev/null || exit 66; " +
+            "rm -rf /opt/eta/cache/android-tools-extract; " +
+            "echo ANDROID_TOOLS_OK"
+
+    /**
+     * 下 platform 包，只抽 android.jar。
+     *
+     * 为什么不用 sdkmanager：它本身是 Java 程序能跑，但会把 x86 的
+     * aapt2/aidl 一起装下来，还得再覆盖一遍。直接拿 platform zip
+     * 只取 android.jar，少下 30MB 用不上的东西。
+     *
+     * android.jar 是纯 Java 存根（方法体都是 throw），与架构无关。
+     */
+    private const val ANDROID_PLATFORM_SCRIPT =
+        "set -e; " +
+            "sdk=/opt/eta/android-sdk; plat=\"\$sdk/platforms/android-" + ANDROID_PLATFORM_API + "\"; mkdir -p \"\$plat\" /opt/eta/cache || exit 71; " +
+            "if [ ! -s \"\$plat/android.jar\" ]; then " +
+            "z=/opt/eta/cache/android-platform-" + ANDROID_PLATFORM_API + ".zip; " +
+            "if [ ! -s \"\$z\" ]; then " +
+            "curl -fsSL --retry 3 --max-time 600 -o \"\$z.part\" '" + ANDROID_PLATFORM_URL + "' || { rm -f \"\$z.part\"; exit 72; }; " +
+            "mv \"\$z.part\" \"\$z\" || exit 72; fi; " +
+            "[ -s \"\$z\" ] || exit 72; " +
+            "rm -rf /opt/eta/cache/android-plat-extract; mkdir -p /opt/eta/cache/android-plat-extract || exit 73; " +
+            "unzip -q -o \"\$z\" -d /opt/eta/cache/android-plat-extract || exit 73; " +
+            "found=$(find /opt/eta/cache/android-plat-extract -name android.jar -type f | head -1); " +
+            "[ -n \"\$found\" ] || exit 74; " +
+            "cp -f \"\$found\" \"\$plat/android.jar\" || exit 74; " +
+            "rm -rf /opt/eta/cache/android-plat-extract \"\$z\"; " +
+            "fi; " +
+            "[ -s \"\$plat/android.jar\" ] || exit 74; " +
+            "echo ANDROID_PLATFORM_OK"
+
+    /**
+     * 下 Gradle 并解到 /opt/eta/gradle/<ver>/。
+     *
+     * 为什么不用 apt：Debian 的 gradle 是 4.4.1（2017 年），不支持
+     * `plugins {}` 新语法、不支持 Kotlin DSL、不认识现代 AGP，
+     * 装上去只能 `--version`，真干活就崩。
+     */
+    private const val GRADLE_SCRIPT =
+        "set -e; " +
+            "root=/opt/eta/gradle; ver=" + GRADLE_VERSION + "; mkdir -p \"\$root\" /opt/eta/cache || exit 81; " +
+            "if [ ! -x \"\$root/\$ver/bin/gradle\" ]; then " +
+            "z=\"/opt/eta/cache/gradle-\$ver-bin.zip\"; " +
+            "if [ ! -s \"\$z\" ]; then " +
+            "curl -fsSL --retry 3 --max-time 900 -o \"\$z.part\" '" + GRADLE_DOWNLOAD_URL + "' || { rm -f \"\$z.part\"; exit 82; }; " +
+            "mv \"\$z.part\" \"\$z\" || exit 82; fi; " +
+            "[ -s \"\$z\" ] || exit 82; " +
+            "if command -v sha256sum >/dev/null; then " +
+            "actual=$(sha256sum \"\$z\" | cut -d' ' -f1); " +
+            "[ \"\$actual\" = '" + GRADLE_SHA256 + "' ] || { rm -f \"\$z\"; exit 83; }; " +
+            "fi; " +
+            "rm -rf \"\$root/gradle-\$ver\" /opt/eta/cache/gradle-extract; mkdir -p /opt/eta/cache/gradle-extract || exit 84; " +
+            "unzip -q -o \"\$z\" -d /opt/eta/cache/gradle-extract || exit 84; " +
+            "mv /opt/eta/cache/gradle-extract/gradle-\$ver \"\$root/\$ver\" || exit 85; " +
+            "rm -rf /opt/eta/cache/gradle-extract \"\$z\"; " +
+            "chmod 0755 \"\$root/\$ver/bin/gradle\" || exit 85; " +
+            "fi; " +
+            "[ -x \"\$root/\$ver/bin/gradle\" ] || exit 85; " +
+            "ln -sf \"\$root/\$ver/bin/gradle\" /usr/local/bin/gradle || exit 86; " +
+            "echo GRADLE_OK"
+
+    /**
+     * 写环境变量与 Gradle 配置。
+     *
+     * `android.aapt2FromMavenOverride` 是关键：Gradle 默认从 Maven 下
+     * `aapt2-<ver>-linux.jar`（里面是 x86_64 二进制），ARM 上跑不了。
+     * 指定这个参数后 Gradle 直接用我们的 ARM64 aapt2。
+     *
+     * 比「解压 jar → 换二进制 → 重新 zip」稳：不碰缓存，升级 Gradle 也不失效。
+     */
+    private const val ANDROID_ENV_SCRIPT =
+        "set -e; " +
+            "sdk=/opt/eta/android-sdk; bt=\"\$sdk/build-tools/" + ANDROID_BUILD_TOOLS_VERSION + "\"; " +
+            "mkdir -p /etc/profile.d || exit 91; " +
+            "printf '%s\\n' 'export ANDROID_HOME=/opt/eta/android-sdk' 'export ANDROID_SDK_ROOT=/opt/eta/android-sdk' " +
+            "'export PATH=/opt/eta/android-sdk/platform-tools:/opt/eta/android-sdk/build-tools/" + ANDROID_BUILD_TOOLS_VERSION + ":/opt/eta/gradle/" + GRADLE_VERSION + "/bin:\$PATH' " +
+            "> /etc/profile.d/eta-android.sh || exit 91; " +
+            "chmod 0644 /etc/profile.d/eta-android.sh || exit 91; " +
+            "for t in aapt aapt2 aidl dexdump zipalign split-select; do " +
+            "if [ -e \"\$bt/\$t\" ]; then ln -sf \"\$bt/\$t\" /usr/local/bin/\$t; fi; done; " +
+            "if [ -e \"\$sdk/platform-tools/adb\" ]; then ln -sf \"\$sdk/platform-tools/adb\" /usr/local/bin/adb; fi; " +
+            "if [ -e \"\$sdk/platform-tools/fastboot\" ]; then ln -sf \"\$sdk/platform-tools/fastboot\" /usr/local/bin/fastboot; fi; " +
+            "gh=\"\${GRADLE_USER_HOME:-/root/.gradle}\"; mkdir -p \"\$gh\" || exit 92; " +
+            "gp=\"\$gh/gradle.properties\"; touch \"\$gp\" || exit 92; " +
+            "grep -v 'aapt2FromMavenOverride' \"\$gp\" > \"\$gp.tmp\" 2>/dev/null || true; " +
+            "printf '%s\\n' 'android.aapt2FromMavenOverride='\"\$bt\"'/aapt2' >> \"\$gp.tmp\" || exit 92; " +
+            "printf '%s\\n' 'android.useAndroidX=true' >> \"\$gp.tmp\"; " +
+            "printf '%s\\n' 'org.gradle.jvmargs=-Xmx1024m' >> \"\$gp.tmp\"; " +
+            "mv \"\$gp.tmp\" \"\$gp\" || exit 92; " +
+            "echo ANDROID_ENV_OK"
+
+    /** 自检：四个关键入口都得能跑，android.jar 得在。 */
+    private const val ANDROID_VERIFY_SCRIPT =
+        "set -e; " +
+            "sdk=/opt/eta/android-sdk; bt=\"\$sdk/build-tools/" + ANDROID_BUILD_TOOLS_VERSION + "\"; " +
+            "\"\$bt/aapt2\" version >/dev/null || exit 95; " +
+            "\"\$sdk/platform-tools/adb\" version >/dev/null || exit 96; " +
+            "/usr/local/bin/gradle --version >/dev/null 2>&1 || exit 97; " +
+            "[ -s \"\$sdk/platforms/android-" + ANDROID_PLATFORM_API + "/android.jar\" ] || exit 98; " +
+            "echo ANDROID_SDK_OK"
+
+    /**
+     * Android SDK + Gradle：手机上真正编译 APK 的完整链路。
+     *
+     * ## 为什么这条路能走通（对比 Google 官方的结论）
+     *
+     * Google 官方**从不发布 aarch64 Linux 版** SDK（`commandlinetools-linux-*`
+     * 全是 x86_64）。但拆开看「编 APK」需要的东西，只有一个真缺：
+     *
+     * | 组件 | 状态 |
+     * |---|---|
+     * | `aapt2` / `aapt` / `aidl` / `zipalign` / `dexdump` | 社区编译的 ARM64 版（lzhiyong） |
+     * | `adb` / `fastboot` / `sqlite3` | 同上 |
+     * | `android.jar` | **纯 Java 存根，架构无关**，从官方 `platform-35_r02.zip` 直接拿 |
+     * | `d8` / `r8` | 纯 Java（r8.jar），RE_LAB 已装 |
+     * | `apksigner` | Debian 有，已软链 |
+     * | `gradle` | 纯 Java，官方独立分发包 |
+     *
+     * 参考的两个真实项目都验证过这条路：
+     * - `AAswordman/Operit`：下载 x86_64 cmdline-tools + 自带 `aapt2-arm64-v8a` 替换，
+     *   还会修补 Gradle 缓存里的 `aapt2-*-linux.jar`
+     * - `jieapi/aicode`：直接用 `android-sdk-tools-static-aarch64.zip` 覆盖原生二进制，
+     *   并用 `android.aapt2FromMavenOverride` 让 Gradle 不下载自己的 aapt2
+     *
+     * 本实现采用**后者的思路**（覆盖 + override），因为它不碰 Gradle 缓存，
+     * 升级 Gradle 也不会失效。
+     *
+     * ## 真机实测（在本机 Ubuntu PRoot 里跑过，不是推测）
+     *
+     * ```
+     * aapt2 version   → Android Asset Packaging Tool (aapt) 2.19-OS3.0.308.0
+     * adb version     → Android Debug Bridge version 1.0.41 / 35.0.2
+     * gradle --version→ Gradle 9.8.1
+     * gradle hi       → BUILD SUCCESSFUL in 9s
+     * aapt2 link -I android.jar → linked.apk (1107 字节)
+     * ```
+     *
+     * 体积：ARM64 工具包 14MB + android.jar 27MB（platform 包 64MB）+ Gradle 151MB。
+     */
+    val ANDROID_SDK = LinuxPackageProfile(
+        id = "android-sdk",
+        markerName = AlpineEnvironmentPaths.ANDROID_SDK_MARKER,
+        revision = AlpineEnvironmentPaths.ANDROID_SDK_REVISION,
+        specs = mapOf(
+            LinuxDistribution.ALPINE to LinuxPackageSpec(steps = ANDROID_SDK_STEPS),
+            LinuxDistribution.DEBIAN to LinuxPackageSpec(steps = ANDROID_SDK_STEPS),
+        ),
+    )
+
+
     /**
      * 必须放在所有属性之后声明。
      *
@@ -392,7 +677,7 @@ internal object LinuxPackageProfiles {
      * 读到它们时字段还是 null，编译期会报 "Variable 'RE_LAB' must be initialized"。
      * 这类错误本地看不出来（本地不能编译），只能等 CI。
      */
-    val ALL = listOf(PYTHON, NODE, SSH, KIMI, RE_LAB, ANGR)
+    val ALL = listOf(PYTHON, NODE, SSH, KIMI, RE_LAB, ANGR, ANDROID_SDK)
 }
 
 internal fun linuxPackageProfileReady(rootfs: File, profile: LinuxPackageProfile): Boolean {
