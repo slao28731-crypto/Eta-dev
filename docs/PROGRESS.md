@@ -60,6 +60,16 @@
   - 代码改动：`FridaPaths` 新增 `RUNTIME_DIR` + `runtimeServerFile()`；新增 `stageServer()`（起之前复制 + chmod 755，大小一致时只补权限）；`startServer()` / `detectServerPid()` 改用 runtime 路径并先 `cd`；新增 `purgeStaleServer()` 清掉老版本跑在 filesDir 的残留（**只比 cmdline 第一个 token，整体 contains 会自杀**）；`ensureRunning()` 加 `staleForeign` 判定；`stopServer()` 也能清野生进程
   - 顺带修：中文 `values-b+zh+Hans/strings.xml` 补 7 条 `linux_frida_*` 并同步 `linux_apk_tools_ready/summary`（上一轮只改了英文）；`AgentPromptBuilder` 与 `re-mobile/SKILL.md` 的路径说明全部改成 runtime 目录
   - **已验证**：编译（CI 通过）、`stageServer()` 端到端（点「停止」→「启动」后 attach 成功）、`purgeStaleServer()`（未自伤、未报错）
+- [x] **2026-10-19** 第十四轮：修渗透组两个安装失败（TMPDIR + 四处依赖互踩）（CI run #51 绿）
+  - **用户真机反馈**：CLOUD 组卡在 `scoutsuite+pacu` 一直转、AD 组报 netexec 失败
+  - **根因 1（最隐蔽）**：`TMPDIR=/data/user/0/com.ai.assistance.operit/cache` 是 Android 侧路径，**chroot 内看不到**。rustc 报 `couldn't create a temp dir: No such file or directory (os error 2)`。→ 所有 pip 步骤加 `export TMPDIR=/tmp`
+  - **根因 2**：NetExec 的 `aardwolf` 是 pyo3 扩展，**PyPI 无 aarch64 wheel**（`pip download --only-binary :all:` 返回 `from versions: none`），必须现场编译 → 新增一步装 `rustc` + `cargo`（Debian 1.85.1）
+  - **根因 3**：NetExec 通过 `certipy-nxc` 把 `cryptography` 钉到 42.0.8，而 mitmproxy 要 ≥47（`service_identity` 要 ≥47 才能 import `cryptography.hazmat.asn1`）→ 装完拉回 `cryptography==47.0.0`（47 是唯一同时满足 mitmproxy ≤48.1 与 pyopenssl 的值，50 会撞 pyopenssl<46）
+  - **根因 4**：scoutsuite 把 protobuf 拖到 3.20.3（angr 直接 ImportError）；pacu 把 urllib3 拖到 1.26.20（semgrep 冲突）→ 拆成两步 + 「修复依赖」步拉回 `protobuf>=6.33` `urllib3>=2.6`
+  - **根因 5（run #50）**：英文文案写 `NetExec's`，Android 资源里 `'` 是转义引导符 → `Invalid unicode escape sequence`。改写句子避开撇号
+  - **新增检查**：`static_check.py` 第 [5/6] 项「字符串裸单引号」。**第一版失效**——它用 `re.sub(r'"[^"]*"', ...)` 跳过双引号片段，把长句里的撇号一起吃了；去掉那段才对，因为 aapt 的双引号语义是「保留空白」不是「免转义」
+  - **真机实测修复后**：`mitmdump 12.2.3` / `nxc 1.5.1` / `certipy 5.1.0` / `angr 10.0.4.post1` / `semgrep 1.181.0` / `scout` / `pacu` / `aws` / `kubectl` 全部可用
+  - **run #51 绿**，产物 `eta-apk-e9abd58…`（34,596,045 字节）
 - [x] **2026-10-19** 第十三轮：内置渗透测试工具 7 组（方案 B，48 项清单）（CI run #48 绿）
   - **核实**：GitHub Releases 13 项版本号与资产名**逐字对得上**（含 `gobuster_Linux_arm64` 大写 L、`aarch64-linux-feroxbuster` 架构前置、`dalfox-…-musl` 三个陷阱）；apt 18 项全部有候选；PyPI 9 项里 **8 个可用**
   - **修正清单三处**：① **`netexec` 不在 PyPI**（`netexec`/`nxc`/`crackmapexec` 全 404，官方只给 `pipx install git+…`）；② **hashcat 需要 `ocl-icd-libopencl1`**（只装 hashcat 报 `No OpenCL`，pocl 只有 ICD 配置缺加载器，补上后 `hashcat -I` 列出 Qualcomm CPU）；③ 体积普遍偏大（nuclei 60→41MB、httpx 40→18MB）

@@ -5,6 +5,87 @@
 ---
 ## 构建 / 工具链
 
+### P091 · `TMPDIR` 指向 chroot 看不到的 Android 路径，任何需要编译的 pip 包都会失败
+
+**现象**：装 NetExec 时报
+`error: couldn't create a temp dir: No such file or directory (os error 2)`
+`at path "/data/user/0/com.ai.assistance.operit/cache/rustcUw1OZw"`
+然后一堆 `could not compile xxx (lib) due to 1 previous error`。
+
+**根因**：环境的 `TMPDIR` 是
+`/data/user/0/com.ai.assistance.operit/cache` —— 这是 **Android 侧路径**，
+在 Debian chroot 里根本不存在。rustc 需要建临时目录，一建就失败。
+
+**影响面**：不只是 rustc。任何「需要现场编译」的包（rust/pyo3 扩展、
+没有 aarch64 wheel 的 C 扩展）都会撞这堵墙。纯 wheel 的包不影响
+（pip 解压到 `build/` 目录，不用系统临时目录）。
+
+**修法**：pip 步骤一律 `export TMPDIR=/tmp`。这一条已加到所有
+RE_LAB / ANGR / 渗透组的 pip 步骤上。
+
+**排查技巧**：看到 `couldn't create a temp dir` 先 `echo $TMPDIR`，
+八成是个跨环境路径。
+
+### P092 · NetExec 的 aardwolf 只能源码编译，会连带打坏 mitmproxy / angr
+
+**现象链**（一次踩了三个，全部实测确认）：
+
+```
+装 NetExec
+  └─ 依赖 aardwolf（pyo3 扩展，PyPI 无 aarch64 wheel）→ 需要 rustc
+  └─ 依赖 certipy-nxc → 把 cryptography 钉到 42.0.8
+       └─ mitmproxy 要 cryptography>=47 → ImportError: cannot import name 'asn1'
+```
+
+**修法**：
+- 装 `rustc` + `cargo`（Debian 1.85.1 够用）
+- 装完把 `cryptography` 拉回 **47.0.0**（不是最新）
+  - 47 是唯一同时满足 mitmproxy（≤48.1）与 `pyopenssl>=25.2` 的值
+  - 升到 50 会撞 `pyopenssl<46`，反而更糟
+
+同一条链的另一半在 CLOUD 组：
+
+```
+装 scoutsuite → protobuf 降到 3.20.3 → angr 报 cannot import 'runtime_version'
+装 pacu       → urllib3 降到 1.26.20  → semgrep 报冲突
+```
+
+→ 每组装完加一步「收敛到已知好版本」。
+
+**教训**：pip 的 resolver 在多包互相覆盖时**不会回头修**，只打印
+`ERROR: pip's dependency resolver does not currently take into account
+all the packages that are installed` 然后继续。所以装完必须自己收敛，
+不能指望它。
+
+**另一个隐蔽点**：这些冲突只在**跨组**才暴露——AD 组装完打坏 RE_LAB 的
+mitmproxy，CLOUD 组装完打坏 ANGR 的 angr。分组独立 marker 让每组都能
+「装成功」，问题要等用户实际使用另一个工具时才发现。
+
+### P093 · Android 资源字符串里的裸单引号会让 aapt 编译失败
+
+**现象**：
+```
+strings.xml:1034:2: Failed to flatten XML for resource
+'linux_pentest_ad_summary' with error: Invalid unicode escape sequence in string
+> Task :app:mergeDebugResources FAILED
+```
+
+**根因**：Android 资源里 `'` 是**转义引导符**（和 `\n` / `\t` 同级）。
+英文文案写 `NetExec's` 时，aapt 认为 `'s` 是转义序列，而 `s`
+不是合法转义字符 → 编译失败。
+
+**注意双引号救不了**：`"NetExec's"` 里的单引号**照样要转义**。
+aapt 的双引号语义是「保留引号内的空白」，不是「免转义」。
+
+**修法**：优先改写句子避开撇号（`The aardwolf dependency of NetExec`
+而不是 `NetExec's aardwolf dependency`）。非要保留就写 `\'`。
+
+**防护**：`static_check.py` 第 [5/6] 项扫裸单引号。
+写这个检查时又踩了二次坑 —— 第一版用
+`re.sub(r'"[^"]*"', "", body)` 想跳过双引号片段，结果长句
+`The aardwolf ... NetExec's` 里本来就有一对引号，整段被吃掉，
+注入事故后检查仍报 PASS。**别用「删双引号片段」的方式处理文本**。
+
 ### P089 · 三引号原始字符串里的 `$` 同样会被插值（同一个坑的第三个变体）
 
 **现象**：CI 报
