@@ -407,10 +407,34 @@ def check_default_params_order() -> list:
                 parts.append(buf)
             seen_default = False
             for raw in parts:
-                name = raw.strip().split(":")[0].strip()
-                if not name or name.startswith("@"):
+                # 去掉行注释和换行，避免把 `// ... = ...` 当成默认值
+                cleaned = re.sub(r"//[^\n]*", "", raw).strip()
+                if not cleaned or cleaned.startswith("@"):
                     continue
-                has_default = re.search(r"(?<![=<>!])=(?!=)", raw) is not None
+                name = cleaned.split(":")[0].strip()
+                if not name or " " in name:
+                    continue
+                # 关键：只认「参数类型之后」的顶层 `=`。
+                # 直接对整段搜 `=` 会把 `content: @Composable () -> Unit`、
+                # `onChange: (String) -> Unit` 之外的东西漏掉，也会把
+                # 类型里的泛型/注解误判。这里按「冒号后、括号深度 0」找等号。
+                colon = cleaned.find(":")
+                if colon < 0:
+                    continue
+                tail = cleaned[colon + 1 :]
+                d = 0
+                has_default = False
+                for i, ch in enumerate(tail):
+                    if ch in "([{":
+                        d += 1
+                    elif ch in ")]}":
+                        d -= 1
+                    elif ch == "=" and d == 0:
+                        prev = tail[i - 1] if i > 0 else ""
+                        nxt = tail[i + 1] if i + 1 < len(tail) else ""
+                        if prev not in "=<>!" and nxt != "=":
+                            has_default = True
+                            break
                 if has_default:
                     seen_default = True
                 elif seen_default:

@@ -123,9 +123,25 @@ jobs:
           ETA_RELEASE_KEY_ALIAS: ${{ secrets.ETA_RELEASE_KEY_ALIAS }}
           ETA_RELEASE_KEY_PASSWORD: ${{ secrets.ETA_RELEASE_KEY_PASSWORD }}
         run: |
+          set +e
           ./gradlew --no-daemon --no-configuration-cache --stacktrace \
             -Peta.buildMetadata=${GITHUB_SHA::7} \
-            :app:assembleDebug :app:assembleRelease
+            :app:assembleDebug :app:assembleRelease 2>&1 | tee "$RUNNER_TEMP/build.log"
+          rc=${PIPESTATUS[0]}
+          echo "gradle exit=$rc"
+          grep -nE "^e: |error:|Unresolved|Cannot|FAILURE" "$RUNNER_TEMP/build.log" | head -80 || true
+          exit $rc
+
+      # 临时步骤：编译失败时把日志带出来。日志接口需要 admin 权限，
+      # 只能靠 artifact 取。定位完就删。
+      - name: 上传编译日志（排障用）
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: build-log-${{ github.sha }}
+          path: ${{ runner.temp }}/build.log
+          if-no-files-found: warn
+          retention-days: 3
 
       - name: 校验并重命名产物
         id: apk
