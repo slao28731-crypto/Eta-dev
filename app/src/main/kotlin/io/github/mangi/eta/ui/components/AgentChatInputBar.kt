@@ -121,8 +121,6 @@ internal fun AgentChatInputBar(
     canCompactContext: Boolean,
     onModelSelected: (String) -> Unit,
     onSubmit: (String) -> Unit,
-    /** 运行中把草稿排进待发送队列（不打断当前 run）。 */
-    onQueueSubmit: (String) -> Unit = {},
     onStop: () -> Unit,
     onAttachImage: (String) -> Unit,
     onRemoveImage: (String) -> Unit,
@@ -131,6 +129,9 @@ internal fun AgentChatInputBar(
     onAttachFilePath: (String) -> Unit,
     onRemoveFileReference: (String) -> Unit,
     onCancelMessageEdit: () -> Unit,
+    // 默认值参数统一放在末尾：Kotlin 不允许「有默认值」后面再跟「无默认值」参数。
+    /** 运行中把草稿排进待发送队列（不打断当前 run）。 */
+    onQueueSubmit: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val keyboard = LocalSoftwareKeyboardController.current

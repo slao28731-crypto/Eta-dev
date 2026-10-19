@@ -349,10 +349,83 @@ def check_block_depth() -> list:
     return errors
 
 
+def check_default_params_order() -> list:
+    """
+    Kotlin 不允许「带默认值的参数」后面再跟「不带默认值的参数」。
+
+    第 54/55 轮踩过：给 AgentChatBody / AgentChatInputBar 在参数列表中段
+    插入 `onQueueSubmit: (String) -> Unit = {}`，后面紧跟无默认值的
+    `onReasoningEffortChange`，编译器直接报错。本地静态检查当时全绿，
+    因为这个错误只有编译器能发现。这里补一条廉价的前置拦截。
+
+    只看顶层函数（含 @Composable 的 internal fun），按括号深度切出参数列表，
+    逐个判断是否有顶层 `=` 默认值。
+    """
+    errors = []
+    targets = [
+        "app/src/main/kotlin/io/github/mangi/eta/ui/components/AgentChatBody.kt",
+        "app/src/main/kotlin/io/github/mangi/eta/ui/components/AgentChatInputBar.kt",
+        "app/src/main/kotlin/io/github/mangi/eta/ui/components/PendingMessageQueuePanel.kt",
+    ]
+    for rel in targets:
+        path = ROOT / rel
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        # 找形如 `fun Name(` 的顶层签名
+        for match in re.finditer(r"^(?:internal |private |public )?fun\s+\w+\s*\(", text, re.M):
+            start = match.end() - 1
+            depth = 0
+            end = None
+            for i in range(start, len(text)):
+                if text[i] == "(":
+                    depth += 1
+                elif text[i] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        end = i
+                        break
+            if end is None:
+                continue
+            params = text[start + 1 : end]
+            # 按顶层逗号切分。
+            # 注意：**不能把 `<` / `>` 计入深度**——`List<A, B>` 一出现，
+            # 尖括号会把深度抬起来，后面所有逗号都不再是顶层，整段参数会被
+            # 并成一块（第一版就是这么失效的，注入事故后仍报 PASS）。
+            parts, depth, buf = [], 0, ""
+            for ch in params:
+                if ch in "([{":
+                    depth += 1
+                elif ch in ")]}":
+                    depth -= 1
+                if ch == "," and depth == 0:
+                    parts.append(buf)
+                    buf = ""
+                else:
+                    buf += ch
+            if buf.strip():
+                parts.append(buf)
+            seen_default = False
+            for raw in parts:
+                name = raw.strip().split(":")[0].strip()
+                if not name or name.startswith("@"):
+                    continue
+                has_default = re.search(r"(?<![=<>!])=(?!=)", raw) is not None
+                if has_default:
+                    seen_default = True
+                elif seen_default:
+                    line_no = text[: start + 1].count("\n") + 1
+                    errors.append(
+                        f"{path.name}: 参数 `{name}` 无默认值，却排在带默认值的参数之后"
+                        f"（Kotlin 会编译失败；函数从第 {line_no} 行起）"
+                    )
+    return errors
+
+
 def main() -> int:
     failures = []
 
-    print("[1/5] 括号平衡")
+    print("[1/7] 括号平衡")
     for rel in KT_FILES:
         path = ROOT / rel
         if not path.is_file():
@@ -363,19 +436,22 @@ def main() -> int:
         if not errs:
             print(f"  [ok] {path.name}")
 
-    print("[2/5] shell 变量转义（Kotlin 字符串模板）")
+    print("[2/7] shell 变量转义（Kotlin 字符串模板）")
     failures += check_dollar_escapes()
 
-    print("[3/5] 花括号深度归零")
+    print("[3/7] 花括号深度归零")
     failures += check_block_depth()
 
-    print("[4/6] 字符串资源对照")
+    print("[4/7] 字符串资源对照")
     failures += check_string_resources()
 
-    print("[5/6] 字符串裸单引号（aapt 会报 Invalid unicode escape）")
+    print("[5/7] 字符串裸单引号（aapt 会报 Invalid unicode escape）")
     failures += check_string_apostrophes()
 
-    print("[6/6] 关键 import + 声明顺序")
+    print("[6/7] 默认值参数顺序（Kotlin 编译硬约束）")
+    failures += check_default_params_order()
+
+    print("[7/7] 关键 import + 声明顺序")
     failures += check_imports()
     import subprocess
     for script in ("ci/verify_profile_decl_order.py", "ci/verify_re_lab_profiles.py"):
