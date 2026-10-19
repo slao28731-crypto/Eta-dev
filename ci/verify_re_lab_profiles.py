@@ -107,16 +107,18 @@ def main() -> int:
     print("[3/4] 资源名对照")
     failures += check_resources()
 
-    print("[4/4] 依赖顺序")
-    # RE_LAB / ANGR 在 ALL 里必须排在 PYTHON 之后（UI 逐项构造 installer）
+    print("[4/4] 声明顺序（Kotlin object 属性按声明顺序初始化）")
+    # ALL 必须出现在 RE_LAB / ANGR 的声明之后，否则编译期报
+    # "Variable 'RE_LAB' must be initialized"。
+    # 这条是上一轮 CI 真实踩到的：ALL 写在前面，构建直接红。
     src = KT.read_text(encoding="utf-8")
-    order = src[src.index("val ALL = listOf("):].split(")")[0]
-    idx_py = order.index("PYTHON")
-    for name in ("RE_LAB", "ANGR"):
-        if order.index(name) < idx_py:
-            failures.append(f"{name} 排在 PYTHON 之前")
+    idx_all = src.index("val ALL = listOf(")
+    for name in ("RE_LAB", "ANGR", "PYTHON"):
+        idx_def = src.index(f"val {name} = LinuxPackageProfile(")
+        if idx_def > idx_all:
+            failures.append(f"{name} 的声明在 ALL 之后，会导致初始化顺序错误")
         else:
-            print(f"  [ok] {name} 在 PYTHON 之后")
+            print(f"  [ok] {name} 声明在 ALL 之前")
 
     if failures:
         print("\n[FAIL]")

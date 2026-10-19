@@ -118,7 +118,6 @@ internal object LinuxPackageProfiles {
             LinuxDistribution.DEBIAN to LinuxPackageSpec(setupScript = KIMI_INSTALL_SCRIPT),
         ),
     )
-    val ALL = listOf(PYTHON, NODE, SSH, KIMI, RE_LAB, ANGR)
 
     /**
      * 逆向分析工具组：z3 约束求解、unicorn 片段仿真、APKiD 判壳、
@@ -199,6 +198,15 @@ internal object LinuxPackageProfiles {
         "python3 -m pip install --quiet --break-system-packages --upgrade angr || exit 61; " +
             "python3 -c 'import angr; print(angr.__version__)' || exit 62; " +
             "echo ANGR_OK"
+
+    /**
+     * 必须放在所有属性之后声明。
+     *
+     * Kotlin 的 `object` 属性按声明顺序初始化，`ALL` 若写在 RE_LAB / ANGR 之前，
+     * 读到它们时字段还是 null，编译期会报 "Variable 'RE_LAB' must be initialized"。
+     * 这类错误本地看不出来（本地不能编译），只能等 CI。
+     */
+    val ALL = listOf(PYTHON, NODE, SSH, KIMI, RE_LAB, ANGR)
 }
 
 internal fun linuxPackageProfileReady(rootfs: File, profile: LinuxPackageProfile): Boolean {
