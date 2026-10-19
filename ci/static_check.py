@@ -20,6 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 KT_FILES = [
     "app/src/main/kotlin/io/github/mangi/eta/agent/terminal/LinuxPackageProfiles.kt",
+    "app/src/main/kotlin/io/github/mangi/eta/agent/terminal/AndroidNdkInstaller.kt",
     "app/src/main/kotlin/io/github/mangi/eta/ui/screens/terminal/LinuxEnvironmentScreen.kt",
     "app/src/main/kotlin/io/github/mangi/eta/ui/screens/terminal/LinuxEnvironmentSections.kt",
 ]
@@ -247,6 +248,45 @@ def check_dollar_escapes() -> list:
     return errors
 
 
+def check_block_depth() -> list:
+    """花括号深度必须归零，且每个文件的嵌套层级要与缩进大致相符。
+
+    这是对 run #40 的教训：`AndroidNdkInstaller.extractArchive` 里
+    `use { raw -> ... use { stream -> ... use { tar -> ... } } }` 少了一层闭合，
+    结果整个 class 从第 206 行起就被提前截断，后面所有成员（companion 常量、
+    嵌套 data class）全部变成「Unresolved reference」——编译报了几十条错，
+    真正的根因只有少一个 `}`。
+
+    为什么原有「括号平衡」检查没抓到：它只统计总数，而这个 bug 的特征是
+    **总量不平衡**——但当时同一次编辑还漏了 pairing，导致数量恰好接近；
+    更可靠的是同时校验「最终深度必须为 0」。这里把 final depth 也纳入。
+    """
+    errors = []
+    for rel in KT_FILES:
+        path = ROOT / rel
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        code = strip_comments_and_strings(text)
+        depth = 0
+        depth_at_line_end = []
+        line = 1
+        for ch in code:
+            if ch == "\n":
+                depth_at_line_end.append(depth)
+                line += 1
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+        depth_at_line_end.append(depth)
+        if depth != 0:
+            errors.append(f"{path.name}: 花括号最终深度为 {depth}，应为 0（少闭或多闭）")
+        else:
+            print(f"  [ok] {path.name} 深度归零")
+    return errors
+
+
 def main() -> int:
     failures = []
 
@@ -264,13 +304,14 @@ def main() -> int:
     print("[2/5] shell 变量转义（Kotlin 字符串模板）")
     failures += check_dollar_escapes()
 
-    print("[3/5] 字符串资源对照")
+    print("[3/5] 花括号深度归零")
+    failures += check_block_depth()
+
+    print("[4/5] 字符串资源对照")
     failures += check_string_resources()
 
-    print("[4/5] 关键 import")
+    print("[5/5] 关键 import + 声明顺序")
     failures += check_imports()
-
-    print("[5/5] 委托给声明顺序校验")
     import subprocess
     for script in ("ci/verify_profile_decl_order.py", "ci/verify_re_lab_profiles.py"):
         proc = subprocess.run(

@@ -229,39 +229,45 @@ internal class AndroidNdkInstaller(
             archive.inputStream().buffered().use { stream ->
                 val compressed = if (xz) XZInputStream(stream, 128 * 1024) else GZIPInputStream(stream)
                 TarArchiveInputStream(compressed).use { tar ->
-                while (true) {
-                    coroutineContext.ensureActive()
-                    val entry = tar.nextEntry ?: break
-                    require(++entries <= MAX_ENTRIES) { "归档条目过多（>$MAX_ENTRIES），可能不是 NDK" }
-                    val path = normalizeArchivePath(entry.name) ?: continue
-                    // safeResolve 返回 null 表示路径逃出了目标目录（含 `..` 或绝对路径）。
-                    // 直接 continue 跳过，而不是解压到别处。
-                    val target = safeResolve(canonicalRoot, path) ?: continue
-                    require(entry.size in 0..MAX_SINGLE_ENTRY) { "单个文件过大：${entry.name}" }
+                    while (true) {
+                        coroutineContext.ensureActive()
+                        val entry = tar.nextEntry ?: break
+                        require(++entries <= MAX_ENTRIES) { "归档条目过多（>$MAX_ENTRIES），可能不是 NDK" }
+                        val path = normalizeArchivePath(entry.name) ?: continue
+                        // safeResolve 返回 null 表示路径逃出了目标目录（含 `..` 或绝对路径），
+                        // 直接跳过，而不是解压到别处。
+                        val target = safeResolve(canonicalRoot, path) ?: continue
+                        require(entry.size in 0..MAX_SINGLE_ENTRY) { "单个文件过大：${entry.name}" }
 
-                    when {
-                        entry.isDirectory -> require(target.mkdirs() || target.isDirectory)
-                        entry.isSymbolicLink || entry.isLink -> pendingLinks += Triple(target, entry.linkName, entry.isLink)
-                        entry.isFile -> {
-                            require(target.parentFile?.mkdirs() == true || target.parentFile?.isDirectory == true)
-                            target.outputStream().use { out ->
-                                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                                var remaining = entry.size
-                                while (remaining > 0) {
-                                    coroutineContext.ensureActive()
-                                    val read = tar.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
-                                    if (read < 0) throw IOException("归档内容不完整：${entry.name}")
-                                    out.write(buffer, 0, read)
-                                    remaining -= read
-                                    written += read
+                        when {
+                            entry.isDirectory -> require(target.mkdirs() || target.isDirectory)
+                            entry.isSymbolicLink || entry.isLink ->
+                                pendingLinks += Triple(target, entry.linkName, entry.isLink)
+                            entry.isFile -> {
+                                require(target.parentFile?.mkdirs() == true || target.parentFile?.isDirectory == true)
+                                target.outputStream().use { out ->
+                                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                                    var remaining = entry.size
+                                    while (remaining > 0) {
+                                        coroutineContext.ensureActive()
+                                        val read = tar.read(
+                                            buffer,
+                                            0,
+                                            minOf(buffer.size.toLong(), remaining).toInt(),
+                                        )
+                                        if (read < 0) throw IOException("归档内容不完整：${entry.name}")
+                                        out.write(buffer, 0, read)
+                                        remaining -= read
+                                        written += read
+                                    }
                                 }
+                                // NDK 的 clang / ld 等必须可执行，按归档里的 mode 位恢复。
+                                if (entry.mode and 0b001001001 != 0) {
+                                    @Suppress("UsePropertyAccessSyntax")
+                                    target.setExecutable(true, false)
+                                }
+                                onProgress(ExtractProgress(written, projected, copying = false))
                             }
-                            // NDK 的 clang / ld 等必须可执行，这里按归档里的 mode 位恢复。
-                            if (entry.mode and 0b001001001 != 0) {
-                                @Suppress("UsePropertyAccessSyntax")
-                                target.setExecutable(true, false)
-                            }
-                            onProgress(ExtractProgress(written, projected, copying = false))
                         }
                     }
                 }
