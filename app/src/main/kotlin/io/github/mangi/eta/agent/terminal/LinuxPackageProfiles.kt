@@ -315,12 +315,12 @@ internal object LinuxPackageProfiles {
         // 装 5.3 时 import angr 会直接报
         // `ImportError: libz3.so.5.1: cannot open shared object file`。
         // 这是实际踩过的坑，不是保守选择。
-        LinuxPackageStep("z3-solver", "python3 -m pip install --quiet --break-system-packages --upgrade \"z3-solver==5.1.0.0\"", "z3 必须与 angr 要求的 5.1.0.0 一致，装不上时先确认网络"),
-        LinuxPackageStep("unicorn", "python3 -m pip install --quiet --break-system-packages --upgrade unicorn", "unicorn 装不上时通常是网络问题，重试即可"),
-        LinuxPackageStep("apkid", "python3 -m pip install --quiet --break-system-packages --upgrade apkid", "APKiD 依赖 yara-python-dex，装不上时先确认网络"),
-        LinuxPackageStep("objection", "python3 -m pip install --quiet --break-system-packages --upgrade objection", "objection 需要 frida>=16，请先装好 Frida 工具"),
-        LinuxPackageStep("mitmproxy", "python3 -m pip install --quiet --break-system-packages --upgrade mitmproxy", "mitmproxy 依赖较多，网络慢时耗时较长"),
-        LinuxPackageStep("androguard", "python3 -m pip install --quiet --break-system-packages --upgrade androguard", "androguard 是纯 Python，装不上时通常是网络问题"),
+        LinuxPackageStep("z3-solver", "export TMPDIR=/tmp; python3 -m pip install --quiet --break-system-packages --upgrade \"z3-solver==5.1.0.0\"", "z3 必须与 angr 要求的 5.1.0.0 一致，装不上时先确认网络"),
+        LinuxPackageStep("unicorn", "export TMPDIR=/tmp; python3 -m pip install --quiet --break-system-packages --upgrade unicorn", "unicorn 装不上时通常是网络问题，重试即可"),
+        LinuxPackageStep("apkid", "export TMPDIR=/tmp; python3 -m pip install --quiet --break-system-packages --upgrade apkid", "APKiD 依赖 yara-python-dex，装不上时先确认网络"),
+        LinuxPackageStep("objection", "export TMPDIR=/tmp; python3 -m pip install --quiet --break-system-packages --upgrade objection", "objection 需要 frida>=16，请先装好 Frida 工具"),
+        LinuxPackageStep("mitmproxy", "export TMPDIR=/tmp; python3 -m pip install --quiet --break-system-packages --upgrade mitmproxy", "mitmproxy 依赖较多，网络慢时耗时较长"),
+        LinuxPackageStep("androguard", "export TMPDIR=/tmp; python3 -m pip install --quiet --break-system-packages --upgrade androguard", "androguard 是纯 Python，装不上时通常是网络问题"),
         LinuxPackageStep(
             label = "dex2jar",
             command = DEX2JAR_SCRIPT,
@@ -373,7 +373,7 @@ internal object LinuxPackageProfiles {
     private val ANGR_STEPS = listOf(
         LinuxPackageStep(
             label = "angr",
-            command = "python3 -m pip install --quiet --break-system-packages --upgrade angr",
+            command = "export TMPDIR=/tmp; python3 -m pip install --quiet --break-system-packages --upgrade angr",
             failureHint = "angr 依赖树很大，网络慢时需要几分钟；空间不足 900MB 会失败",
         ),
         LinuxPackageStep(

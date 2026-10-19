@@ -1028,10 +1028,10 @@
   <string name="linux_pentest_cred_summary">sqlmap / hydra / john / hashcat plus the top 100k rockyou entries; ~150 MB. hashcat also pulls in an OpenCL runtime — without it hashcat reports "No OpenCL" and cannot run.</string>
   <string name="linux_pentest_cred_ready">Credential group is ready (sqlmap / hydra / john / hashcat, OpenCL configured)</string>
   <string name="linux_pentest_cloud">Pentest · Cloud &amp; source audit</string>
-  <string name="linux_pentest_cloud_summary">awscli / kubectl / gitleaks / trufflehog / semgrep / scoutsuite / pacu; ~300 MB, the largest group in this list. awscli has the highest reference count.</string>
+  <string name="linux_pentest_cloud_summary">awscli / kubectl / gitleaks / trufflehog / semgrep / scoutsuite / pacu; ~300 MB, the largest group in this list. Afterwards protobuf and urllib3 are pinned back to compatible versions so angr and semgrep keep working.</string>
   <string name="linux_pentest_cloud_ready">Cloud and audit group is ready (awscli / kubectl / gitleaks / trufflehog / semgrep / scoutsuite / pacu)</string>
   <string name="linux_pentest_ad">Pentest · Internal AD</string>
-  <string name="linux_pentest_ad_summary">impacket / NetExec / certipy-ad; ~90 MB. NetExec can only be installed from GitHub source (it is not on PyPI); a failure there does not affect the other two.</string>
+  <string name="linux_pentest_ad_summary">impacket / NetExec / certipy-ad; ~120 MB including the Rust toolchain. NetExec's aardwolf dependency must be compiled with Rust, and NetExec itself is only available from GitHub source (it is not on PyPI); afterwards cryptography is pinned back so mitmproxy keeps working.</string>
   <string name="linux_pentest_ad_ready">Internal AD group is ready (impacket / NetExec / certipy-ad)</string>
   <string name="linux_pentest_wifi">Pentest · Wireless</string>
   <string name="linux_pentest_wifi_summary">aircrack-ng; ~10 MB. Offline pcap analysis only — capturing requires a monitor-mode NIC, which phone chipsets generally do not support.</string>

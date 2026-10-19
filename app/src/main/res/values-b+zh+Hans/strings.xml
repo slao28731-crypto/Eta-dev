@@ -1010,10 +1010,10 @@
   <string name="linux_pentest_cred_summary">sqlmap / hydra / john / hashcat + rockyou 前 10 万条；约 150 MB。hashcat 会连带装 OpenCL 运行库，否则报 No OpenCL 无法使用。</string>
   <string name="linux_pentest_cred_ready">凭据组已就绪（sqlmap / hydra / john / hashcat，OpenCL 已配置）</string>
   <string name="linux_pentest_cloud">渗透 · 云与源码审计</string>
-  <string name="linux_pentest_cloud_summary">awscli / kubectl / gitleaks / trufflehog / semgrep / scoutsuite / pacu；约 300 MB，本清单体积最大的一组。awscli 是引用次数最高的工具。</string>
+  <string name="linux_pentest_cloud_summary">awscli / kubectl / gitleaks / trufflehog / semgrep / scoutsuite / pacu；约 300 MB，本清单体积最大的一组。装完会自动把 protobuf 与 urllib3 拉回兼容版本，避免 angr / semgrep 被拖坏。</string>
   <string name="linux_pentest_cloud_ready">云与审计组已就绪（awscli / kubectl / gitleaks / trufflehog / semgrep / scoutsuite / pacu）</string>
   <string name="linux_pentest_ad">渗透 · 内网 AD</string>
-  <string name="linux_pentest_ad_summary">impacket / NetExec / certipy-ad；约 90 MB。NetExec 只能从 GitHub 源码安装（PyPI 上无此包），装不上不影响其他两项。</string>
+  <string name="linux_pentest_ad_summary">impacket / NetExec / certipy-ad；约 120 MB（含 Rust 工具链）。NetExec 的依赖 aardwolf 需要 Rust 现场编译，且 PyPI 上无此包，只能从 GitHub 源码装；装完会自动修复 cryptography 版本以免拖坏 mitmproxy。</string>
   <string name="linux_pentest_ad_ready">内网 AD 组已就绪（impacket / NetExec / certipy-ad）</string>
   <string name="linux_pentest_wifi">渗透 · 无线</string>
   <string name="linux_pentest_wifi_summary">aircrack-ng；约 10 MB。只能离线分析 pcap，抓包需要监听模式网卡，手机芯片通常不支持。</string>
