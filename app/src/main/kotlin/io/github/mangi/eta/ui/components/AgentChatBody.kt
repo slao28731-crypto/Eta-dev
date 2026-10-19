@@ -250,6 +250,12 @@ internal fun AgentChatBody(
                 keepBottomAnchored = true
                 onSubmit(text)
             },
+            queuedMessages = queuedMessages,
+            queueExpanded = queueExpanded,
+            onQueueExpandedChange = onQueueExpandedChange,
+            onRemoveQueuedMessage = onRemoveQueuedMessage,
+            onSendQueuedMessageNow = onSendQueuedMessageNow,
+            onQueueMessage = onQueueMessage,
             onReasoningEffortChange = onReasoningEffortChange,
             onCompactContext = onCompactContext,
             canCompactContext = canCompactContext,
@@ -315,9 +321,16 @@ private fun AgentChatScaffold(
     onRunTraceClick: () -> Unit,
     onOpenBrowser: () -> Unit,
     currentBrowserMessageId: String?,
+    // 队列参数必须逐层透传：AgentChatBody → AgentChatScaffold → AgentChatBottomBar，
+    // 三层都是独立函数，漏一层就 Unresolved reference（run #54~#59 全是这个）。
+    queuedMessages: List<QueuedMessageUi> = emptyList(),
+    queueExpanded: Boolean = true,
+    onQueueExpandedChange: (Boolean) -> Unit = {},
+    onRemoveQueuedMessage: (String) -> Unit = {},
+    onSendQueuedMessageNow: (String) -> Unit = {},
+    onQueueMessage: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    // 页面底色与顶栏、底栏必须同源，否则深色下会出现"中间 #242424、上下纯黑"的割裂。
     // Miuix 的 surface 在深色 Spec2025 下是纯黑，不能直接拿来当底。
     val surfaceColor = appPageBackgroundColor()
     val frostEnabled = hasMessages && LocalBlurEnabled.current && isRuntimeShaderSupported()

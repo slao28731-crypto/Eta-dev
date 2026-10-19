@@ -449,7 +449,7 @@ def check_default_params_order() -> list:
 def main() -> int:
     failures = []
 
-    print("[1/7] 括号平衡")
+    print("[1/8] 括号平衡")
     for rel in KT_FILES:
         path = ROOT / rel
         if not path.is_file():
@@ -460,25 +460,29 @@ def main() -> int:
         if not errs:
             print(f"  [ok] {path.name}")
 
-    print("[2/7] shell 变量转义（Kotlin 字符串模板）")
+    print("[2/8] shell 变量转义（Kotlin 字符串模板）")
     failures += check_dollar_escapes()
 
-    print("[3/7] 花括号深度归零")
+    print("[3/8] 花括号深度归零")
     failures += check_block_depth()
 
-    print("[4/7] 字符串资源对照")
+    print("[4/8] 字符串资源对照")
     failures += check_string_resources()
 
-    print("[5/7] 字符串裸单引号（aapt 会报 Invalid unicode escape）")
+    print("[5/8] 字符串裸单引号（aapt 会报 Invalid unicode escape）")
     failures += check_string_apostrophes()
 
-    print("[6/7] 默认值参数顺序（Kotlin 编译硬约束）")
+    print("[6/8] 默认值参数顺序（Kotlin 编译硬约束）")
     failures += check_default_params_order()
 
-    print("[7/7] 关键 import + 声明顺序")
+    print("[7/8] 关键 import + 声明顺序")
     failures += check_imports()
     import subprocess
-    for script in ("ci/verify_profile_decl_order.py", "ci/verify_re_lab_profiles.py"):
+    for script in (
+        "ci/verify_profile_decl_order.py",
+        "ci/verify_re_lab_profiles.py",
+        "ci/verify_compose_param_passthrough.py",
+    ):
         proc = subprocess.run(
             [sys.executable, script], cwd=ROOT, capture_output=True, text=True
         )

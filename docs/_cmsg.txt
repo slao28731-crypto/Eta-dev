@@ -1,0 +1,16 @@
+fix(chat): 补全三层参数透传（AgentChatBody -> AgentChatScaffold -> AgentChatBottomBar）
+
+run #54~#59 六次失败都是同一个结构性问题：
+AgentChatBody.kt 里的输入栏被拆成三层独立函数，
+我只给最外层 AgentChatBody 加了队列参数，
+中间层 AgentChatScaffold 和调用点都没传，所以报 Unresolved reference。
+
+本轮改动：
+- AgentChatScaffold 签名补 6 个队列参数
+- AgentChatBody 到 AgentChatScaffold 的调用点补 6 个透传
+- AgentChatBottomBar 及其调用点上一轮已补
+
+新增 ci/verify_compose_param_passthrough.py：
+不靠编译器，比对「被调函数需要的参数」与「调用点传的实参」。
+实测：注入漏传时报出具体缺哪 3 个，还原后 PASS。
+已接进 static_check.py 第 [7/8] 项。
