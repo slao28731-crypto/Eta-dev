@@ -138,18 +138,22 @@ Agent 自己就能添加 MCP 服务器，不需要用户进设置页。6 个工�
 
 ## 下一步（最重要）
 
-**第十轮已完成并编译通过（CI run #38），等真机验收。**
+**第十一轮已完成并编译通过（CI run #41，commit `f9be503`），等真机验收。**
 
-- 装 run #38 的产物（commit `2024f51`），进 设置 → 终端 → Linux 环境 → 逆向分析工具组，点安装
-- 观察进度条：先是「下载 radare2_6.2.4_arm64.deb · 37%」这类真实百分比，然后是「正在安装 apkid (3/8)」这类分步进度
-- 装完跑自检（贴原始输出给我）：
+- 装 run #41 的产物，进 设置 → 终端 → Linux 环境
+- **Android NDK 区块**（在「可选工具」之外，独立一项）：点「导入」选你的 `TUSI-Ollvm-ndk-r29-aide-Magic.tgz`
+  - 先显示「复制归档 x%」再显示「解压 x%」，728MB 约需 2.5GB 空间
+  - 装完显示「当前激活：29.x（TUSI-Ollvm-ndk-r29-aide-Magic）」+ 体积 + clang 路径
+  - 多版本会列出来，可「设为当前」「删除」
+- **逆向分析工具组**：现在多 3 步（Android 命令行工具 / r8-d8 / androguard），z3 固定 5.1.0.0
+- 自检（贴原始输出）：
   ```sh
-  for t in r2 radare2 mitmdump objection apkid; do printf '%-12s %s\n' "$t" "$(command -v "$t" 2>/dev/null || echo MISSING)"; done
-  python3 -c "import z3, unicorn; print('py ok')"
-  r2 -v | head -1
+  for t in aapt2 apksigner zipalign dexdump d8 r8 r2; do printf '%-10s %s\n' "$t" "$(command -v "$t" 2>/dev/null || echo MISSING)"; done
+  python3 -c "import z3, unicorn, apkid, androguard; print('py ok')"
+  d8 --version
   ```
-- angr 单独一项，默认不装（900MB），需要符号执行时再点
-- 77 个 skill ZIP 在 `/sdcard/Download/eta-skills/zips/`，待导入（先拿 2.2KB 的 `packer-identification.zip` 试）
+- NDK 只能在 **root shell 通道**调用（`/data/data/io.github.mangi.eta/files/android-ndk/<槽>/bin/clang`），Linux 终端里跑不了
+- 77 个 skill ZIP 在 `/sdcard/Download/eta-skills/zips/`，待导入
 
 第五轮验收（删除 demo 目录）用户原话：「刚刚我去Github仓库看了一下，demo文件夹里面都是之前用的HTML预览图，请你删除这个文件夹和内容，以后预览图只在本地生成」。
 第六轮用户定调：「按照你推荐进行」= 530KB 全量切分 + A/C 工具组 + 解掉回编译限制。**已验收**。

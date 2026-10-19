@@ -5,6 +5,80 @@
 ---
 ## 构建 / 工具链
 
+### P085 · 少闭合一层 `use {}`，整个 class 被提前截断，报一堆 Unresolved reference
+
+**现象**：CI 报 20 多条 `Unresolved reference`，全是 class 自己内部的东西：
+
+```
+Unresolved reference 'ROOT_DIR_NAME'      （companion 里的 const）
+Unresolved reference 'InstalledNdk'       （嵌套 data class）
+Unresolved reference 'ExtractProgress'
+Unresolved reference 'ACTIVE_POINTER'
+Unresolved reference 'readNdk'
+Cannot infer type for type parameter 'T'
+```
+
+看着像「成员全丢了」，实际是**整个 class 在第 206 行就被 `}` 提前关掉**，
+后面的嵌套类型与 companion 全变成顶层声明，互相看不见。
+
+**根因**：三层嵌套 `use { ... }`：
+
+```kotlin
+archive.inputStream().use { raw ->            // 1
+  archive.inputStream().buffered().use { s -> // 2
+    TarArchiveInputStream(c).use { tar ->     // 3
+      while (true) { ... }
+    }                                         // 只闭了 2 层
+  }
+}
+```
+
+`use { tar ->` 的右括号丢了。**根因只是一个 `}`，但导致的报错有二十多条。**
+
+**为什么原有检查没抓到**：`static_check.py` 的「括号平衡」只比 `{` 与 `}`
+的数量差，而这次同一处还伴随缩进错位，数量差恰好没能暴露断点；
+「声明顺序校验」看的是文本顺序，也看不出 class 已被截断。
+
+**防护**：`static_check.py` 新增「花括号深度归零」——
+逐字符扫描（跳过注释/字符串/字符常量/raw string），要求最终 `depth == 0`。
+配 `self_test_static_check.py` 注入该事故，必须报错且来自深度检查。
+
+**教训**：Kotlin 的 `use {}` / `let {}` / `apply {}` 嵌套很深时，一次 `edit_file`
+很容易少闭一层。改完这类嵌套结构，**先数缩进层级，再跑深度检查**，
+不要等 CI。
+
+### P086 · NDK 的 clang 是 bionic 二进制，只能在 Android 宿主执行
+
+**现象**：用户导入的 NDK，`clang --version` 在 Debian chroot 里报
+`cannot execute: required file not found`，在 PRoot 里报 `Permission denied`。
+
+**排查**：读 ELF 的 PT_INTERP 段：
+
+```python
+# 偏移 0x20 是 e_phoff，0x36 是 e_phentsize，0x38 是 e_phnum
+# PT_INTERP(type=3) 的 offset 在 ph+8，size 在 ph+32
+# 结果：/system/bin/linker64
+```
+
+**根因**：NDK 的 clang 是 **Android bionic** 二进制（`INTERP=/system/bin/linker64`），
+不是 glibc 程序。它只在 Android 宿主上能加载：
+
+| 路径 | 结果 | 原因 |
+|---|---|---|
+| Debian chroot | ❌ | 无 `/system/bin/linker64` |
+| PRoot Ubuntu | ❌ | 看不到 `/system`，且无 bionic 库 |
+| `/storage/emulated/0` | ❌ | noexec 挂载 |
+| `/data/local/tmp` | ✅ | 可执行，但重启可能被清 |
+| **App 私有目录** | ✅ | `/data` 是 nosuid,nodev 但**无 noexec** |
+
+**做法**：装在 `context.filesDir/android-ndk`，只能由 root shell 通道调用。
+**Agent 的 Linux 终端（environment=linux）永远调不到它**，提示词里必须写清，
+否则 Agent 会在错误的通道里反复试。
+
+**另注**：NDK 里 `bin/clang` 指向 `clang-21`（LLVM 版本），而
+`source.properties` 的 `Pkg.Revision` 是 `29.x`（NDK 版本）——**两个数字不是一个体系**，
+不能用 NDK 版本号去拼 clang 文件名。
+
 ### P082 · Kotlin 字符串里裸写 `$shell_var`，编译报 Unresolved reference
 
 **现象**：`Unresolved reference 'eta_bin'`，报在 `append("[ -d \"$eta_bin\" ]")` 这一行，

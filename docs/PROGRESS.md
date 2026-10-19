@@ -60,6 +60,16 @@
   - 代码改动：`FridaPaths` 新增 `RUNTIME_DIR` + `runtimeServerFile()`；新增 `stageServer()`（起之前复制 + chmod 755，大小一致时只补权限）；`startServer()` / `detectServerPid()` 改用 runtime 路径并先 `cd`；新增 `purgeStaleServer()` 清掉老版本跑在 filesDir 的残留（**只比 cmdline 第一个 token，整体 contains 会自杀**）；`ensureRunning()` 加 `staleForeign` 判定；`stopServer()` 也能清野生进程
   - 顺带修：中文 `values-b+zh+Hans/strings.xml` 补 7 条 `linux_frida_*` 并同步 `linux_apk_tools_ready/summary`（上一轮只改了英文）；`AgentPromptBuilder` 与 `re-mobile/SKILL.md` 的路径说明全部改成 runtime 目录
   - **已验证**：编译（CI 通过）、`stageServer()` 端到端（点「停止」→「启动」后 attach 成功）、`purgeStaleServer()`（未自伤、未报错）
+- [x] **2026-10-19** 第十一轮：Android NDK 导入入口（方案 B）+ d8/r8 + build-tools 接 PATH（CI run #41 绿）
+  - **NDK 是独立机制**：`AndroidNdkInstaller`，用户自备压缩包，**不内置任何资产**（728MB 包 / 解压 2.5GB，内置会让 APK 膨胀十倍）
+  - **三条死路实测**（决定了架构）：Debian chroot 无 `/system/bin/linker64`；PRoot 看不到 `/system` 且无 bionic；sdcard 是 noexec。只有 `/data` 分区可执行（nosuid,nodev 但无 noexec）→ 装 `context.filesDir/android-ndk`
+  - **关键实现**：先落盘再解压（SAF 流不支持 mark/reset，判不了 xz/gz 魔数）；双段进度（复制 / 解压分开回报）；3.2 倍膨胀比做空间预检；归档多套一层目录自动摊平；clang 探测**不能**用 NDK 版本号拼（Pkg.Revision=29 但二进制是 clang-21）；tar 路径穿越防护；多版本槽 + `.active` 指针
+  - **UI 位置**：放在 `selectedToolsReady` **之外**——NDK 跟 Debian rootfs 无关，不该因为没装 Linux 环境而藏起来
+  - **d8/r8**：Debian 没有 d8/dx 包，但 r8 是纯 Java 程序（JVM 即可，与架构无关）。固定 9.5.26（Maven 上大量 `-dev`），下载到 `/opt/eta/re-tools/`，生成 `/usr/local/bin/d8` 与 `r8` 包装。实测 `javac → d8 → classes.dex 880 字节`，`dexdump` 验出 `DEX version '035'`
+  - **build-tools**：`android-sdk-build-tools` 在 aarch64 上真实存在（29.0.3），但装在 `/usr/lib/android-sdk/build-tools/<ver>/` 不在 PATH——这就是「工具缺失」错觉的来源。动态找版本目录 + 软链 + `apksigner.jar` 补链
+  - **angr 修好**：z3 必须锁 `5.1.0.0`（angr 元数据写死），装最新 5.3 会 `ImportError: libz3.so.5.1`
+  - **run #40 踩坑（P085）**：`extractArchive` 三层 `use{}` 少闭合一层 → class 从 206 行被提前截断 → 报 20+ 条 `Unresolved reference`。**根因只是一个 `}`**。新增「花括号深度归零」检查 + 自测（注入事故必须报错）
+  - **run #41 绿**，产物 `eta-apk-f9be503…`（34,565,189 字节）
 - [x] **2026-10-19** 第十轮：修掉「安装逆向分析工具组失败」+ 安装进度可视化（用户真机报错后查证）
   - **根因 1（radare2）**：`apt-cache policy radare2` → `Candidate: (none)`，`apt-cache search radare` 零结果。**Debian trixie 源里没有 radare2**。第九轮把它写进 `packages` 走 `eta-apt install`，apt 报 `has no installation candidate`，**整条 profile 第一步就死，后面 5 个 pip 包一个都没跑**。→ 改走 GitHub Releases 的 `radare2_6.2.4_arm64.deb`（ELF aarch64、`Depends: libc6`、sha256 `bbf48ee7…32ef1` 已对官方 checksums.txt），由 `VerifiedArtifactDownloader` 落到 rootfs/tmp 再 `dpkg -i`
   - **根因 2（PATH）**：`sysconfig.get_path("scripts")` = `/opt/eta/python/cpython-3.14.7-linux-aarch64-gnu/bin`，**不在 PATH 里**，所以 `pip install mitmproxy` 成功了但 `command -v mitmdump` 找不到。→ 新增一步统一在 `/usr/local/bin` 建软链
