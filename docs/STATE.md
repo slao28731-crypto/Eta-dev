@@ -166,6 +166,8 @@ Agent 自己就能添加 MCP 服务器，不需要用户进设置页。6 个工�
 
 **改这个文件之后一定要跑 `python3 ci/verify_frida_cli.py`。**
 
+**CI 已验证（2026-10-19，run #31 / commit `2d5c231`）**：`conclusion: success`，其中「校验 Frida 安装命令」步骤单独通过，编译产出双 APK。用户可直接下 Artifacts 装。
+
 ### 第八轮没做的（性价比排序里排 4、6 的两项）
 
 | 未做项 | 内容 | 建议 |
