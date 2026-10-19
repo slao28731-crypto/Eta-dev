@@ -1,18 +1,26 @@
-docs: 并发改造影响面清单（docs/CONCURRENT_AGENTS.md）+ P096
+feat(runtime): 第 1 批并发改造——多 run 会话 + 主任务浮层
 
-用户要求「把影响到的因素写成一份文本放在下载目录，同时在相关文档记录」。
+根因（P096）：AgentRuntimeService 只有单个 activeSession，且 startRun()
+第一行就 cancel()，所以一条对话发消息会掐死另一条。
 
-产出：
-- 新增 docs/CONCURRENT_AGENTS.md（361 行，完整影响面清单）
-  同内容也放在 /sdcard/Download/Eta并发改造-受影响功能清单.md
-- PITFALLS 新增 P096：一条对话在跑、另开对话发消息会掐死前一条
-  记录了根因（activeSession 单值 + startRun 首行 cancel）与排查口诀
-- STATE：文档地图加 CONCURRENT_AGENTS.md；下一步改为记录并发改造三项决策
-- PROGRESS：新增「待办：多并发 Agent 改造（方案乙，分 3 批）」
-  并把第十五轮标记为真机验收通过
-- AGENTS.md：文档索引表加 CONCURRENT_AGENTS.md（顺手修回被误删的 PROGRESS 行）
+Service 侧：
+- 删掉 activeSession 字段，改为 activeSessions: ConcurrentHashMap<runId, Session>
+- 新增 primaryRunId：浮层（胶囊/暂停/补充指令）只能对应一个 run，
+  约定「谁是主任务谁上浮层，其余安静跑」。没有主任务时新 run 才接管
+- startRun 不再无条件 cancel：仅同 runId 重入才取消
+- handleAcceptedRunEvent / postTerminalOverlay 改按 runId 查身份；
+  非主任务跳过全部 overlay 更新（事件仍经 eventSink 推给 UI 进程）
+- postTerminalOverlay 移除自身后，若自己是主任务则把浮层让给下一个
+- executeRun 的 shouldUpdateHost==false 分支补上无条件摘除，避免泄漏
+- attachRun / cancelRun 改按 runId 精确取，不再只认「那唯一的一个」
+- onDestroy 取消并清空全部会话
 
-用户已拍板的三项决策（写进文档了）：
-1. 终端工作区共享 /workspace，不按会话隔离
-2. 接受 GUI 操作串行排队（无障碍/浏览器/Frida 物理上只能一个）
-3. 分 3 批做，每批真机验一次
+UI 侧（AgentAppState）：
+- 拆 currentRunId 的双重语义：
+  observedRunIds（有没有在跑）+ latestRunId（最近启动的谁）
+- 新增 hasActiveRun / stopRun(runId)；stopCurrentRun 改为按会话反查 runId，
+  不再停「最近启动的那个」（并发后那是别人的任务）
+- sendQueuedMessageNow 只取消本会话的 run
+
+本次不动：无障碍/浏览器/Frida 串行化（第 2 批）、overlay 多任务展示（第 3 批）。
+验证目标：两个对话能同时跑终端命令。
