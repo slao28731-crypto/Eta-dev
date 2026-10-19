@@ -186,7 +186,13 @@ internal class AgentLocalTools(
                     )
                 }
             }
-            when (toolCall.name) {
+            // ── 并发改造第 2 批：独占资源串行化 ──────────────────────
+            // 无障碍 / 浏览器 / Frida 在物理上只有一个（一棵树、一个 WebView、
+            // 一个固定端口），两个 run 同时动会互相踩。按资源加公平锁，
+            // 同一时刻只放一个 run 进去，其余阻塞排队。
+            // 终端 / 文件 / 网络 / 记忆 / skills / MCP 不受影响，照常并发。
+            val exclusive = ExclusiveResourceGate.resourceFor(toolCall.name)
+            fun dispatch(): AgentModelClient.ToolResult = when (toolCall.name) {
                 "get_current_context" -> textResult(DeviceContextTool.current(context))
                 "search_apps" -> textResult(searchApps(args))
                 "launch_app" -> textResult(launchApp(args))
@@ -247,6 +253,12 @@ internal class AgentLocalTools(
                         message = "未知工具：${toolCall.name}"
                     )
                 )
+            }
+            // 独占资源串行执行；非独占工具直接跑，不额外加锁。
+            if (exclusive != null) {
+                ExclusiveResourceGate.withExclusive(exclusive, browserRunId) { dispatch() }
+            } else {
+                dispatch()
             }
         }.getOrElse { throwable ->
             textResult(
