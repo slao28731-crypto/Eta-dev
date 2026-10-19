@@ -141,6 +141,10 @@ Agent 自己就能添加 MCP 服务器，不需要用户进设置页。6 个工�
 
 ## 下一步（最重要）
 
+**当前无进行中任务。等用户发下一道指令。**
+
+**多并发 Agent 改造（方案乙）已全部完成并真机验收通过**（第 1/2/3 批，commit `dd9b679`）。以下是第十四轮的历史记录，保留供查阅。
+
 **第十四轮真机验收通过**（CI run #51，commit `e9abd58` 产物）。渗透组 7 组全部装上可用。
 
 **这一轮修掉的四个根因（供后人查）：**
@@ -153,10 +157,13 @@ Agent 自己就能添加 MCP 服务器，不需要用户进设置页。6 个工�
 | （连带）angr 挂 | scoutsuite 把 protobuf 降到 3.20.3 | 拉回 `protobuf>=6.33` |
 
 **第十五轮已完成并编译通过（CI run #60，commit `95348c8`）；卡片美化 + 角色对话插话已验收。**
-**⚠️ 进行中：多并发 Agent 改造（用户要求方案乙）**
 
-**第 1 批已完成并编译通过（CI run #64，commit `6bdd0cdf`）✅ 真机验收通过**
-**第 2 批已完成并编译通过（CI run #66，commit `658b86f5`），等真机验收。**
+**多并发 Agent 改造（方案乙）三批全部完成并真机验收通过。**
+
+**第 1 批（多 run 会话 + 主任务浮层）：CI run #64，commit `6bdd0cdf` ✅ 验收通过**
+**第 2 批（独占资源串行化）：CI run #66，commit `658b86f5` ✅ 验收通过**
+**第 3 批（浮层/通知显示多任务）：CI run 39278952887 / 39281014597，commit `dd9b679` ✅ 验收通过**
+产物 `eta-apk-f064c13ff6b1314efcd47ec6033f0869171832fa`，34,637,069 字节，有效期 2026-11-18。
 
 用户已拍板三项决策：
 1. **终端工作区共享**同一个 `/workspace`（不按会话隔离）
@@ -175,7 +182,7 @@ Agent 自己就能添加 MCP 服务器，不需要用户进设置页。6 个工�
 **第 2 批做了什么（独占资源串行化）**：
 - 新增 `agent/tool/ExclusiveResourceGate.kt`：按资源分组的公平锁
 - `AgentLocalTools.execute()` 的 `when` 包成局部 `dispatch()`，
-  按 `resourceFor(toolName)` 决定加锁；非独占工具直接跑
+  按 `resourceFor(toolName)` 决定是否加锁；非独占工具直接跑
 - 覆盖：**无障碍**（observe_screen / tap* / long_press* / swipe /
   scroll* / type_text / input_text / replace_text / clear_text /
   paste_text / clipboard / press_key / wait_for_* / open_system_panel）、
@@ -184,20 +191,51 @@ Agent 自己就能添加 MCP 服务器，不需要用户进设置页。6 个工�
   `web_search` `fetch_url`（走 HTTP 不走 WebView）
 - 阻塞等锁而非失败（等超 3s 打日志）
 
-**第 2 批验收方法**：
-1. 装 run #66 的产物（`eta-apk-658b86f5…`，34,631,563 字节）
-2. 对话 A 里让 agent 操作界面（如「打开设置，找到显示」）
-3. 同时切到对话 B，也让 agent 操作界面
-4. **预期：两个都正常完成，不会出现「点错位置」或「界面跳来跳去」**
-5. 观察日志应出现 `exclusive resource busy: 无障碍 ... waiting`
-6. 终端类命令仍应完全并发（A 跑 `sleep 60` 时 B 能立刻执行）
-
 **第 2 批刻意不做**：
 - 没做超时失败（等不到锁就等，因为「另一个 run 在点屏幕」是正常状态）
 - Frida 没纳入（它是用户手动点的 UI 按钮，不是 agent 工具）
 
-**已知限制（第 3 批才做）**：
-- 浮层只显示主任务，看不出「还有几个在跑」
+**第 2 批实测数据（2026-10-19 真机）**：
+- 对话 A 跑 `sleep 90 && echo SLEEP_DONE`：23:20:32 → 23:22:02，整 90 秒、退出码 0
+- 对话 B 同时跑：23:21:10.609 完成 `B_OK`（epoch 1792423270 换算）
+- **B 在 A 睡到第 38 秒就完成，A 还剩 52 秒** —— 终端未被串行化，且 B 没掐死 A
+
+**第 3 批做了什么（浮层/通知显示多任务）**：
+- **修 bug 1**：`executeRun` 的 `finally` 里原本无条件
+  `updateRunStatus(this, null)`。并发后 A 先跑完就把全局 `runStatus`
+  擦成 null，通知栏里正在干活的 B 的状态文字随之消失。
+  改为 `refreshRunStatusIfIdle()`，只在 `activeSessions` 清空时才清（P097）。
+- **修 bug 2**：`postTerminalOverlay` 只换了 `primaryRunId`，`state` 还挂着
+  刚结束任务的「已返回结果」；接手的新主任务在后台期间的事件被
+  `primaryRunId` 判断挡掉了，不重置就是「胶囊显示已完成、实际还在干活」。
+  现在切主任务时 `state = AgentOverlayState.Initial` + `ensureOverlayVisible()`。
+- **修 bug 3（顺带）**：新任务接管浮层时撤掉上一个任务的结果卡片。
+  新增 `removeResultCard()`（与 `dismissAndStop()` 区分：后者含 `stopSelf()`）。
+  否则那张卡片的关闭键会把刚接管的新任务一起关掉。
+- **胶囊 +N 角标（方案甲）**：`AgentOverlayCapsule` 新增 `otherRunCount` 参数；
+  > 0 时在状态文字右侧渲染 `OtherRunBadge`（主色字 + 14% 主色底，
+  11sp SemiBold，6dp 圆角）。放在 `weight(1f)` 的 Column **之外**，
+  文字变长时先压缩状态文字而不是挤掉角标。
+  用文字不用第二个旋转光点——收起态一行里两个动画点会让人误以为有两个状态同时进行。
+  新增 `otherRunCountState` + `refreshOtherRunCount()`，在 `activeSessions`
+  的四个变更点（`onDestroy` 清空 / `startRun` 入册 / 两处摘除）同步。
+- **通知标题带总数（方案甲）**：`taskCount > 1` 时用 `execution_title_count`
+  （`Eta 正在运行（2）`），正文仍是主任务状态。三语（values / zh+Hans / zh+Hant）
+  新增字符串。不依赖新通路：`acquire()` 的 `startForegroundService` 会走
+  `onStartCommand` 里的 `refreshNotification`。
+- **会话列表小圆点不用改**：`isActiveRun = state.isStreaming` 本来就是按会话存的，
+  第 1 批之后就会对两条对话同时亮。
+
+**第 3 批验收方法**：
+1. 装 `eta-apk-f064c13f…`（34,637,069 字节）
+2. 对话 A 跑长任务，同时开对话 B 也发消息
+3. **预期**：胶囊右侧出现 `+1` 角标；通知栏标题变成「Eta 正在运行（2）」
+4. A 先结束 → 胶囊不消失，切到 B 的状态继续显示，不再出现「已完成」的假象
+5. 会话列表里两条对话的小圆点**同时亮**
+
+**第 3 批刻意不做**：
+- 胶囊不支持长按手动收起（只改了显示，交互没动）
+- 结果卡片仍只显示最后一个任务的结果（多任务的结果各自回各自会话）
 
 
 
@@ -574,4 +612,4 @@ git push origin clean:main
 
 ---
 
-_最后更新：2026-10-19（第十四轮验收通过：渗透 7 组全部可用）_
+_最后更新：2026-10-19（多并发 Agent 改造三批全部验收通过）_

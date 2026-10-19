@@ -60,7 +60,7 @@
   - 代码改动：`FridaPaths` 新增 `RUNTIME_DIR` + `runtimeServerFile()`；新增 `stageServer()`（起之前复制 + chmod 755，大小一致时只补权限）；`startServer()` / `detectServerPid()` 改用 runtime 路径并先 `cd`；新增 `purgeStaleServer()` 清掉老版本跑在 filesDir 的残留（**只比 cmdline 第一个 token，整体 contains 会自杀**）；`ensureRunning()` 加 `staleForeign` 判定；`stopServer()` 也能清野生进程
   - 顺带修：中文 `values-b+zh+Hans/strings.xml` 补 7 条 `linux_frida_*` 并同步 `linux_apk_tools_ready/summary`（上一轮只改了英文）；`AgentPromptBuilder` 与 `re-mobile/SKILL.md` 的路径说明全部改成 runtime 目录
   - **已验证**：编译（CI 通过）、`stageServer()` 端到端（点「停止」→「启动」后 attach 成功）、`purgeStaleServer()`（未自伤、未报错）
-- [x] **2026-10-19** 第 2 批并发改造：独占资源串行化（CI run #66 绿）⏳ 等真机验收
+- [x] **2026-10-19** 第 2 批并发改造：独占资源串行化（CI run #66 绿）✅ **真机验收通过**
   - **要解决的问题**：第 1 批后多 run 可并发，但无障碍/浏览器物理上只有一个，
     两个 agent 同时点屏幕会互相踩（A 点确定、B 点取消，谁后下手谁生效）
   - **做法**：新增 `agent/tool/ExclusiveResourceGate.kt`（按资源分组的公平锁）；
@@ -74,7 +74,45 @@
   - **纠正三处凭空写的工具名**：`screenshot`（只是 observe_screen 的 space 参数值）、
     `get_ui_tree` / `find_element`（Eta 里没有）、`frida_*`（Frida 是用户手点的 UI 按钮，
     不是 agent 工具，不存在并发冲突）
-  - **验证目标**：两个对话同时操作界面不点错；终端类仍完全并发
+   - **验证目标**：两个对话同时操作界面不点错；终端类仍完全并发
+   - **实测数据（2026-10-19）**：A 跑 `sleep 90 && echo SLEEP_DONE`
+     23:20:32 → 23:22:02（整 90 秒、退出码 0）；B 同时跑，23:21:10.609 完成 `B_OK`。
+     **B 在 A 睡到第 38 秒就跑完了，A 还剩 52 秒** —— 两个方向同时验到：
+     B 没掐死 A（第 1 批），终端没被串行化（第 2 批）
+- [x] **2026-10-19** 第 3 批并发改造：浮层/通知显示多任务（CI run 39278952887 / 39281014597 绿）✅ **真机验收通过**
+  - **这一批三项里两项是修前两批带出来的 bug，不是新功能**
+  - **bug 1（通知状态被误清）**：`executeRun` 的 `finally` 里原本无条件
+    `AgentExecutionService.updateRunStatus(this, null)`。`release()` 是按 runId 的（安全），
+    但 `updateRunStatus` 写的是**全局单值** —— A 先跑完就把 `runStatus` 擦成 null，
+    通知栏里正在干活的 B 的状态文字随之消失。
+    改成 `refreshRunStatusIfIdle()`：只在 `activeSessions` 清空时才清（P097）
+  - **bug 2（浮层状态没交接）**：`postTerminalOverlay` 只换了 `primaryRunId`，
+    `state` 还挂着刚结束任务的「已返回结果」；而接手的新主任务在后台期间的
+    事件被 `primaryRunId != session.runId` 判断全挡掉了。不重置就是
+    「胶囊显示已完成、实际还在干活」。改为切主任务时
+    `state = AgentOverlayState.Initial` + `ensureOverlayVisible()`
+  - **bug 3（顺带，结果卡片会连带关掉新任务）**：新任务接管浮层时撤掉上一个任务的
+    结果卡片。新增 `removeResultCard()`，与 `dismissAndStop()` 区分 ——
+    后者含 `stopSelf()`，留着旧卡片的关闭键会把刚接管的新任务一起关掉
+  - **新显示 1：胶囊 `+N` 角标（方案甲）**：`AgentOverlayCapsule` 新增
+    `otherRunCount` 参数，`> 0` 时在状态文字右侧渲染 `OtherRunBadge`
+    （主色字 + `accent.copy(alpha=0.14f)` 底，11sp SemiBold，6dp 圆角）。
+    放在 `weight(1f)` 的 Column **之外**，文字变长时先压缩状态文字而不是挤掉角标。
+    用文字不用第二个旋转光点 —— 收起态一行里两个动画点会让人误以为有两个状态在跑。
+    新增 `otherRunCountState` + `refreshOtherRunCount()`，在 `activeSessions`
+    的四个变更点同步：`onDestroy` 清空 / `startRun` 入册 / 两处摘除
+  - **新显示 2：通知标题带总数（方案甲）**：`taskCount > 1` 时用
+    `execution_title_count`（`Eta 正在运行（2）`），正文仍是主任务状态。
+    三语（`values` / `values-b+zh+Hans` / `values-b+zh-Hant`）各补一条。
+    不依赖新通路：`ExecutionLeaseRegistry.acquire()` 的 `startForegroundService`
+    会走 `onStartCommand` 里的 `refreshNotification`
+  - **会话列表小圆点不用改**：`AgentAppState.refreshConversationSummaries` 里
+    `isActiveRun = state.isStreaming` 本来就是**按会话存**的，
+    第 1 批之后就会对两条对话同时亮
+  - **验证目标**：胶囊出现 `+N`、通知标题带数量、A 结束后胶囊不消失且切到 B 的状态
+  - **顺手记的教训**：CI 期间不要再拿长 `sleep` 阻塞终端。这轮为等 CI 连发了
+    `sleep 300/420/480`，第三次工具结果丢失但命令还在跑，导致下一条命令 60 秒超时。
+    改成间隔查询，别用单条长 sleep 占住会话
 - [x] **2026-10-19** 第 1 批并发改造：多 run 会话 + 主任务浮层（CI run #64 绿）✅ 真机验收通过
   - **根因**：`AgentRuntimeService` 只有单个 `activeSession`，`startRun()` 第一行
     `activeSession?.controller?.cancel()` —— 一条对话发消息就掐死另一条（P096）

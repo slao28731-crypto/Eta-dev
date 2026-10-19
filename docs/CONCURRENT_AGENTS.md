@@ -240,21 +240,26 @@ fun acquire(context, id, allowBoundFallback, onStop)   // id 是键
 
 ---
 
-## 三、界面与通知（第三批）
+## 三、界面与通知（第三批）—— ✅ 已实施并验收（2026-10-19，commit `dd9b679`）
+
+> **实际做法与原计划的差异**：原计划是「胶囊点开能看任务列表」，实施时改为
+> **`+N` 角标**（收起态直接可见），不做列表。理由：胶囊是 248dp 固定宽、收起高 68dp，
+> 塞列表要重新设计窗口尺寸与滚动，代价远超收益；`+N` 已能回答「还有几个在跑」。
+> 展开态的暂停/停止/补充仍只作用于**主任务**，这个边界没变。
 
 ### 3.1 Overlay 胶囊 / 状态显示
 
 | 项 | 值 |
 |---|---|
-| 文件 | `AgentRuntimeService.kt` 内 `state.value`，共 **14 处** |
+| 文件 | `AgentRuntimeService.kt`（`otherRunCountState` + `refreshOtherRunCount`）、`AgentOverlayCapsule.kt`（`otherRunCount` 参数 + `OtherRunBadge`） |
+| 实际改动 | 胶囊状态文字右侧显示 `+N`（主色字 + 14% 主色底，11sp SemiBold，6dp 圆角） |
 | 风险 | 中 |
 
-现在只有一个全局 `state.value`（胶囊显示「正在执行…」）。
+**已修的两个并发 bug（原计划没写，做的时候才发现）**：
+1. `executeRun` 的 `finally` 里无条件 `updateRunStatus(this, null)` → A 跑完擦掉 B 的通知状态
+2. `postTerminalOverlay` 只换 `primaryRunId` 不重置 `state` → 胶囊显示「已完成」但新主任务还在跑
 
-**并发后的问题**：两个任务都在跑，胶囊显示谁的？
-
-**改法**：胶囊显示「2 个任务执行中」，点开能看列表。
-**受影响的功能**：悬浮胶囊、状态栏通知、`AgentOverlayState`。
+详见 `docs/PITFALLS.md` 的 **P097**。
 
 ---
 
@@ -262,31 +267,33 @@ fun acquire(context, id, allowBoundFallback, onStop)   // id 是键
 
 | 项 | 值 |
 |---|---|
-| 文件 | `AgentExecutionService` 的通知、`BackgroundCommandNotification` |
-| 风险 | 中 |
-
-**并发后**：需要显示多个任务，或者合成一条「2 个任务」。
+| 文件 | `AgentExecutionService.kt` 的 `notification()`，三语 `execution_service.xml` |
+| 实际改动 | `taskCount > 1` 时标题用 `execution_title_count`（`Eta 正在运行（2）`），正文仍是主任务状态 |
+| 风险 | 低 |
 
 ---
 
 ### 3.3 会话列表
 
-**需要新增**：哪个对话正在跑的小标记（否则你不知道另一条还在跑）。
+**无需改代码。** `AgentAppState.refreshConversationSummaries()` 里
+`isActiveRun = state.isStreaming`，而 `isStreaming` 是**按会话存**在
+`conversationsById[conversationId]` 上的 —— 第 1 批改成多 run 之后，
+抽屉里两条对话的小圆点本来就会同时亮。第 3 批只需验收确认。
 
 ---
 
 ## 四、工具调用层
 
-### 4.1 AgentLocalTools
+### 4.1 AgentLocalTools —— ✅ 已实施（第 2 批）
 
 | 项 | 值 |
 |---|---|
-| 文件 | `agent/tool/AgentLocalTools.kt` |
-| 风险 | 中 |
+| 文件 | `agent/tool/AgentLocalTools.kt`、`agent/tool/ExclusiveResourceGate.kt` |
+| 做法 | **不需要把 runId 传进工具层**。`ExclusiveResourceGate` 用公平 `ReentrantLock` 按资源分组，谁先到谁先拿，工具本身不知道 runId 也照样正确排队 |
+| 风险 | 低 |
 
-工具执行时需要知道「我是哪个 run 在调」——因为要判断该不该排队（GUI 类要排队）。
-
-**改法**：工具调用上下文带上 runId。
+> 原计划写的「工具调用上下文带上 runId」是过度设计：排队的本质是「互斥资源占用」，
+> 不需要知道占用者是谁。只有日志里为了排障才记录了 runId，但不参与调度决策。
 
 ---
 

@@ -170,6 +170,30 @@ private var currentRunId: String? = null                   // 单值
 **排查口诀**：看到「一条对话跑完另一条也停了」，先查 `activeSessions.remove` 的位置；
 看到「A 的回复出现在 B 里」，先查 UI 侧 `currentRunId` 是不是还是单值。
 
+### P097 · 单值改多值之后，所有「全局单例」的收尾动作都要重新审一遍
+
+**现象**：第 1 批并发改造验收通过后，第 3 批做浮层显示时才挖出三个遗留 bug。它们有一个共同形状：
+**功能主体（`activeSessions`、`primaryRunId`）已经改成多值的，但围着它转的收尾/切换逻辑还是按「只有一个」写的。**
+
+| # | 位置 | 代码 | 后果 |
+|---|---|---|---|
+| 1 | `executeRun` 的 `finally` | `updateRunStatus(this, null)` 无条件执行 | A 跑完就把全局 `runStatus` 擦成 null，通知栏里**正在干活的 B** 的状态文字消失 |
+| 2 | `postTerminalOverlay` | `primaryRunId = activeSessions.keys.firstOrNull()` 只换了 id | 浮层 `state` 还挂着 A 的「已返回结果」；而 B 在后台期间的事件被 `primaryRunId != session.runId` 全挡掉 → **胶囊显示已完成，实际还在干活** |
+| 3 | 主任务交接 | 结果卡片 `resultCardView` 不撤 | 卡片的关闭键走 `dismissAndStop()`（含 `stopSelf()`）→ **点一下把刚接管的新任务一起关掉** |
+
+**根因**：改造时只盯着「数据容器从 1 个变 N 个」，没盯「**写全局副作用的那些调用点**」。
+`release("run:$runId")` 是按 key 释放的（天然安全），`updateRunStatus(...)` 写的是单值（天然不安全）。
+两者写在相邻两行，看起来一样，语义完全不同。
+
+**检查清单（改单值为多值后必做）**：
+1. 把所有 `xxx = null` / `xxx = Initial` / `xxx.remove(...)` 的位置列出来
+2. 逐条问：**这一行执行时，还有别人在跑吗？**
+3. 有别人在跑 → 必须加 `if (没别人了)` / `if (我是当前那个)` 守卫
+4. 特别是「清理」「重置」「关闭」「停止」这类动词，**天然带着单例假设**
+
+**另一个易漏点**：后台任务的副作用被挡掉之后，切主任务时必须**补一次初始化**。
+第 2 条 bug 的本质是「B 的状态从来没人累积过」，光换 `primaryRunId` 不够。
+
 ### P095 · Composable 参数要逐层透传：漏一层就是 Unresolved reference
 
 **现象**：给聊天输入栏加了 6 个队列参数，本地 `grep` 看参数明明都在签名里，
