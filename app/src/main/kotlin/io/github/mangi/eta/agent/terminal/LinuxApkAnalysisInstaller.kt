@@ -47,11 +47,11 @@ internal fun linuxApkAnalysisReady(rootfs: File): Boolean {
 
 internal fun linuxApkJavaInstallCommand(distribution: LinuxDistribution): String =
     when (distribution) {
-        LinuxDistribution.ALPINE -> "/usr/local/bin/eta-apk install openjdk25-jdk"
-        LinuxDistribution.DEBIAN -> "/usr/local/bin/eta-apt install openjdk-25-jdk-headless"
+        LinuxDistribution.ALPINE -> "/usr/local/bin/eta-apk install openjdk25-jdk aapt2"
+        LinuxDistribution.DEBIAN -> "/usr/local/bin/eta-apt install openjdk-25-jdk-headless aapt2 apksigner"
     }
 
-/** 为当前 Linux 发行版安装 Java 分析工具；APK 资源回编译仍需 ARM64 AAPT2 支持。 */
+/** 为当前 Linux 发行版安装 Java 分析工具与 ARM64 aapt2；apktool build 走 aapt2-wrapper 回编译。 */
 internal class LinuxApkAnalysisInstaller(
     private val context: Context,
     private val distribution: LinuxDistribution,
@@ -163,6 +163,7 @@ internal class LinuxApkAnalysisInstaller(
         val binDir = File(staging, "bin").apply { check(mkdirs()) }
         File(binDir, "java").writeText(JAVA_WRAPPER)
         File(binDir, "apktool").writeText(APKTOOL_WRAPPER)
+        File(binDir, "aapt2-wrapper").writeText(AAPT2_WRAPPER)
         File(binDir, "smali").writeText(javaJarWrapper("smali.jar"))
         File(binDir, "baksmali").writeText(javaJarWrapper("baksmali.jar"))
         true
@@ -241,18 +242,19 @@ internal class LinuxApkAnalysisInstaller(
               ${shellQuote(File(installing, "jadx/bin/jadx").absolutePath)} \
               ${shellQuote(File(installing, "bin/java").absolutePath)} \
               ${shellQuote(File(installing, "bin/apktool").absolutePath)} \
+              ${shellQuote(File(installing, "bin/aapt2-wrapper").absolutePath)} \
               ${shellQuote(File(installing, "bin/smali").absolutePath)} \
               ${shellQuote(File(installing, "bin/baksmali").absolutePath)} || exit 72
             eta_link_commands() {
               "${'$'}eta_busybox" mkdir -p ${shellQuote(File(rootfs, "usr/local/bin").absolutePath)} || return 1
-              for eta_command in java jadx apktool smali baksmali; do
+              for eta_command in java jadx apktool aapt2-wrapper smali baksmali; do
                 "${'$'}eta_busybox" rm -f ${shellQuote(File(rootfs, "usr/local/bin").absolutePath)}/"${'$'}eta_command"
               done
               "${'$'}eta_busybox" ln -s ../../../opt/eta/apk-analysis/current/bin/java \
                 ${shellQuote(File(rootfs, "usr/local/bin/java").absolutePath)} || return 1
               "${'$'}eta_busybox" ln -s ../../../opt/eta/apk-analysis/current/jadx/bin/jadx \
                 ${shellQuote(File(rootfs, "usr/local/bin/jadx").absolutePath)} || return 1
-              for eta_command in apktool smali baksmali; do
+              for eta_command in apktool aapt2-wrapper smali baksmali; do
                 "${'$'}eta_busybox" ln -s ../../../opt/eta/apk-analysis/current/bin/"${'$'}eta_command" \
                   ${shellQuote(File(rootfs, "usr/local/bin").absolutePath)}/"${'$'}eta_command" || return 1
               done
@@ -297,11 +299,13 @@ internal class LinuxApkAnalysisInstaller(
             apktool --version >/dev/null 2>&1 || exit 83
             smali --version >/dev/null 2>&1 || exit 84
             baksmali --version >/dev/null 2>&1 || exit 85
+            aapt2-wrapper version >/dev/null 2>&1 || exit 87
             cat > /${AlpineEnvironmentPaths.APK_ANALYSIS_MARKER} <<'ETA_APK_ANALYSIS_EOF'
             profile=${AlpineEnvironmentPaths.APK_ANALYSIS_REVISION}
             jadx=$JADX_VERSION
             apktool=$APKTOOL_VERSION
             smali=$SMALI_VERSION
+            aapt2=system
             ETA_APK_ANALYSIS_EOF
             chmod 0644 /${AlpineEnvironmentPaths.APK_ANALYSIS_MARKER} || exit 86
         """.trimIndent()
@@ -364,11 +368,11 @@ internal class LinuxApkAnalysisInstaller(
         if (current.exists() && !current.renameTo(previous)) return false
         try {
             if (!staging.renameTo(current)) throw java.io.IOException("无法激活工具目录")
-            listOf("jadx/bin/jadx", "bin/java", "bin/apktool", "bin/smali", "bin/baksmali").forEach {
+            listOf("jadx/bin/jadx", "bin/java", "bin/apktool", "bin/aapt2-wrapper", "bin/smali", "bin/baksmali").forEach {
                 if (!File(current, it).setExecutable(true, false)) throw java.io.IOException("无法设置工具权限")
             }
             val localBin = File(rootfs, "usr/local/bin").apply { mkdirs() }
-            listOf("java", "jadx", "apktool", "smali", "baksmali").forEach { name ->
+            listOf("java", "jadx", "apktool", "aapt2-wrapper", "smali", "baksmali").forEach { name ->
                 val path = File(localBin, name).toPath()
                 java.nio.file.Files.deleteIfExists(path)
                 val relative = if (name == "jadx") "jadx/bin/jadx" else "bin/$name"
@@ -460,15 +464,29 @@ internal class LinuxApkAnalysisInstaller(
             )
         }
 
+        /**
+         * apktool 的 build 路径依赖 aapt2。apktool 会先把 aapt2 复制到 TMPDIR 再执行，
+         * 复制会丢 x 位，于是报 `Syntax error: "(" unexpected`。
+         * 这里指定 [AAPT2_WRAPPER] 而不是 aapt2 本体，wrapper 在被复制后仍会 exec 真实二进制。
+         */
         internal val APKTOOL_WRAPPER = """
             #!/bin/sh
             case "${'$'}{1:-}" in
               b|build)
-                echo "APKTOOL_BUILD_UNAVAILABLE: Eta APK 分析档案暂不包含 ARM64 AAPT2，仅支持解码与检查。" >&2
-                exit 64
+                if [ ! -x /usr/bin/aapt2 ]; then
+                  echo "APKTOOL_BUILD_UNAVAILABLE: 未找到 aapt2，请先执行 eta-apt install aapt2。" >&2
+                  exit 64
+                fi
+                exec java -jar /opt/eta/apk-analysis/current/lib/apktool.jar "${'$'}@" --aapt /usr/local/bin/aapt2-wrapper
                 ;;
             esac
             exec java -jar /opt/eta/apk-analysis/current/lib/apktool.jar "${'$'}@"
+        """.trimIndent() + "\n"
+
+        /** apktool 复制本脚本后不再有 x 位，因此脚本用显式解释器路径执行真实 aapt2。 */
+        internal val AAPT2_WRAPPER = """
+            #!/bin/sh
+            exec /usr/bin/aapt2 "${'$'}@"
         """.trimIndent() + "\n"
 
         internal val JAVA_WRAPPER = """

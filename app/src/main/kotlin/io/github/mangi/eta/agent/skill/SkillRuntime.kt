@@ -37,6 +37,8 @@ private data class BuiltinSkillAsset(
     val hasReferences: Boolean = false,
     val hasAssets: Boolean = false,
     val hasEvals: Boolean = false,
+    /** manifest 未写时默认 true，保持既有内置技能行为不变。 */
+    val defaultEnabled: Boolean = true,
 )
 
 /** 注册表中的技能状态记录。 */
@@ -137,6 +139,7 @@ private class BuiltinSkillAssetStore(
                         hasReferences = obj.optBoolean("hasReferences"),
                         hasAssets = obj.optBoolean("hasAssets"),
                         hasEvals = obj.optBoolean("hasEvals"),
+                        defaultEnabled = if (obj.has("defaultEnabled")) obj.optBoolean("defaultEnabled") else true,
                     )
                 }.filter { it.id.isNotBlank() && it.assetPath.isNotBlank() }
             }
@@ -163,7 +166,7 @@ private class BuiltinSkillAssetStore(
                 return@forEach
             }
             registry[builtin.id] = SkillRegistryEntry(
-                enabled = true,
+                enabled = builtin.defaultEnabled,
                 source = BUILTIN_SOURCE,
                 installState = INSTALL_STATE_INSTALLED,
             )

@@ -119,7 +119,8 @@ internal object AgentPromptBuilder {
                     "environment=android 操作 Android；environment=linux 使用设置中选定的 Linux 发行版。" +
                     "环境、身份和 cwd 是可选覆盖，不会在失败后自动切换。Linux 的 /workspace 对应哪个宿主目录以执行上下文为准；" +
                     "共享目录位于 /workspace/mounts，访问用户共享文件时先确认实际挂载。" +
-                    "分析 APK 使用 Linux 环境的 APK 分析工具；未安装时提示用户在设置中安装，当前 apktool 不支持回编译。" +
+                    "分析 APK 使用 Linux 环境的 apk 分析工具（jadx/apktool/smali/baksmali/aapt2/apksigner 已就位）；" +
+                    "未安装时提示用户在设置中安装；apktool build 用 --aapt /usr/local/bin/aapt2-wrapper 回编译，签名用 apksigner。" +
                     "读取图片内容调用 read_image；同一轮最多读取一张，观察返回内容后再读下一张。" +
                     executionContext?.let { "\n" + it.description(rootAvailable) }.orEmpty(),
             ))

@@ -29,6 +29,27 @@
       "hasReferences": false,
       "hasAssets": false,
       "hasEvals": false
+    },
+    {
+      "id": "re-mobile",
+      "name": "re-mobile",
+      "description": "Android/iOS 逆向与游戏分析。APK/IPA 拆包、jadx 反编译、smali 改写与 aapt2 回编译、Frida 动态 Hook、.so 与 ELF 分析、内存读写、Unity/UE 引擎定位、协议抓包、加固脱壳与反调试对抗。",
+      "assetPath": "builtin_skills/re-mobile",
+      "hasScripts": false,
+      "hasReferences": true,
+      "hasAssets": false,
+      "hasEvals": false
+    },
+    {
+      "id": "re-pc",
+      "name": "re-pc",
+      "description": "PC 与主机端逆向：PE 结构分析、IDA/Ghidra 调试流程、DLL 注入与 Manual Mapping、Windows 内核驱动、内存读写、反作弊分级对抗、Web 与协议逆向。Eta 跑在手机上，本 skill 提供电脑端可执行方案并分析回传结果。",
+      "assetPath": "builtin_skills/re-pc",
+      "hasScripts": false,
+      "hasReferences": true,
+      "hasAssets": false,
+      "hasEvals": false,
+      "defaultEnabled": false
     }
   ]
 }

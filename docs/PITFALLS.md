@@ -241,6 +241,76 @@ call.optJSONObject("function")?.put("arguments", JSONObject().put("redacted", tr
 
 ---
 
+## P083 · 内置 skill 的 description 被静默截断，触发词全部丢失
+
+**现象**：把两个外部 skill 原样放进 `assets/builtin_skills/` 后，模型完全不会在「反编译 APK」「Frida hook」这类请求下主动加载它们。
+**根因**：`AgentPromptBuilder.kt:211-215` 对每个 skill 的 description 做：
+```kotlin
+.let { if (it.length <= 180) it else it.take(180) + "..." }
+```
+实测：`game-hacking` 的 description 311 字 → 被砍 131 字（42%），截断点正落在「驱动」中间，`DLL注入`/`脱壳`/`Frida`/`Xposed`/`il2cpp`/`Unity逆向` 全丢；`reverse-engineering` 505 字 → 被砍 325 字（64%），前 180 字全是英文介绍，28 个中文触发词一个不剩，连 `disassembl` 都被腰斩成 `disassemb`。
+**解法**：description 压到 180 字以内只做一句话概括，触发词表整块移到 SKILL.md 正文。当前 5 个 skill 实测 140/122/84/122/129 字。
+**教训**：**description 是给模型做「要不要加载这个 skill」判断的唯一依据，不是元数据仓库。** 写进去的每一个字都必须能帮助判断，删掉之后就等于没写。截断是静默的，没有任何报错，只能靠量字符数发现。
+
+---
+
+## P084 · apktool 回编译报 `Syntax error: "(" unexpected`，真因是 aapt2 被复制后丢了 x 位
+
+**现象**：装好 `aapt2` 之后执行 `apktool b dec -o out.apk --aapt /usr/bin/aapt2`，报：
+```
+Exception: Execution failed (exit code = 2): [/tmp/aapt2_1229....tmp, compile, --dir, dec/res, --legacy, -o, ...]
+W: /tmp/aapt2_1229....tmp: 2: Syntax error: "(" unexpected
+```
+错误信息看起来像 shell 语法错，很容易误判成 aapt2 参数不对或二进制损坏。
+**根因**：apktool 在调用 aapt2 前会把它**复制到 `TMPDIR` 再执行**。复制过程不保留可执行权限（x 位），于是系统把这个 ELF 二进制当成 shell 脚本去解析，解析到 ELF 头里的二进制字节就报「( 语法错误」。
+**解法**：不把 aapt2 本体传给它，改传一个 shell wrapper：
+```sh
+#!/bin/sh
+exec /usr/bin/aapt2 "$@"
+```
+apktool 复制这个脚本同样丢 x 位，但脚本本身是被 `sh` 执行的（有 shebang），而 `exec /usr/bin/aapt2` 指向的是**原位置、权限完好**的二进制。落在 `LinuxApkAnalysisInstaller.kt` 的 `AAPT2_WRAPPER` 常量，安装时写到 `bin/aapt2-wrapper` 并建软链到 `usr/local/bin/`。
+**教训**：**报错信息里的路径比报错内容更值钱。** 看到 `/tmp/xxx.tmp` 就该想到「这是被复制过的副本」，而不是去怀疑原始二进制。跨进程传二进制时，权限、属主、x 位这三样在 `cp` 语义下都不保证，传 wrapper 比传本体稳。
+
+---
+
+## P085 · `public.xml` 里 `$` 开头的资源名会让 aapt2 编译整体失败
+
+**现象**：同一 APK，`apktool b --aapt aapt2-wrapper` 报：
+```
+W: error: resource 'drawable/$ic_splash_animated__1' has invalid entry name '$ic_splash_animated__1'.
+...
+W: dec/res/values/public.xml: error: file failed to compile.
+```
+**根因**：这是 **apktool 解包时的副作用**，不是目标 APK 本身的问题。原始 APK 里这类资源名在编译后的 `resources.arsc` 里是合法的（二进制字符串池不校验），但 apktool 反解成 `public.xml` 文本时原样写了出来，aapt2 的文本解析器按 Java 标识符规则校验，`$` 开头直接拒绝。
+**解法**：两种，按需要选：
+1. `apktool b dec --copy-original` —— 直接拷原 `resources.arsc`，跳过资源重编。适合**只改 smali 不改资源**的场景（最常见）。
+2. 改写 `public.xml`，把 `$ic_splash_animated__N` 改成合法名并同步改 `res/` 目录下的文件名和所有引用。
+**教训**：**apktool 是「解包尽量忠实」而不是「解包结果可直接重编」**。凡是反解出来又被原样喂回编译器的环节，都要预期「格式合法但语义非法」的边界。先试 `--copy-original`，能过就别去改资源名。
+
+---
+
+## P086 · pip 装包被 PEP 668 拦（`externally-managed-environment`）
+
+**现象**：在 Debian rootfs 里 `python3 -m pip install capstone` 直接失败，提示 `error: externally-managed-environment`，并建议用 venv。
+**根因**：Debian 12+ 的 Python 标记为「由系统包管理器托管」（PEP 668），pip 默认拒绝写入 `site-packages`，防止和 `apt` 装的包打架。
+**解法**：加 `--break-system-packages`。本机还额外需要 `--ignore-installed` 才能绕开 `psutil` 这类「由 debian 安装、无 RECORD 无法卸载」的包：
+```bash
+python3 -m pip install --break-system-packages --ignore-installed lief pyaxmlparser
+```
+**注意**：`--break-system-packages` 对 Eta 这种「用户自有 rootfs、不做系统升级」的场景是安全的；但如果哪天 rootfs 走 `apt upgrade`，pip 装的包可能被覆盖，需要重装。
+**教训**：容器里装 Python 包，先确认是不是 PEP 668 托管环境。看到 `externally-managed-environment` 不要真去建 venv（Eta 的 `python3` 是软链到 `/opt/eta/python/`，venv 会让工具链找不到），直接 `--break-system-packages`。
+
+---
+
+## P087 · skill 的 reference 超过 64,000 字符只能读到一部分
+
+**现象**：把一个 275KB 的 `cheatsheet.md` 放进 `references/` 后，模型读它只能拿到开头约 23% 的内容，后面的内容「写了但读不到」。
+**根因**：`skills_read_resource` 的 `maxChars` 参数 `coerceIn(512, 64_000)`，**默认只有 16,000**。原文件 274,602 字符，即使传满 64,000 也只覆盖 23%。`skills_read` 读 SKILL.md 走同一套限制，原 `reverse-engineering/SKILL.md` 26,717 字符在默认值下只能读 60%。
+**解法**：按 markdown 一二级标题（`# ` / `## `）边界切分，每份控制在 64,000 字符内，按主题命名。切分脚本要注意一个坑：**只把 `#{1,2}` 当边界，不要用 `#{1,3}`** —— 三级标题切分会让每块只剩标题行，正文全丢（第一次切分就踩了这个，8 个分组里 7 个只有几百字节，全部内容都堆进了 misc）。
+**教训**：**「文件存在」和「文件可读」是两件事。** 放进 skill 的每个文件都要先量字符数，量完再决定切不切。这条和 P083 是同一类问题的两面：一个是入口（description）被截，一个是正文被截，两者都是静默的。
+
+---
+
 ## 文档 / 图谱
 
 ### P060 · `graphify extract` 扫不到文件
