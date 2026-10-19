@@ -260,6 +260,56 @@ def check_dollar_escapes() -> list:
     return errors
 
 
+def check_string_apostrophes() -> list:
+    """strings.xml 里的裸单引号会让 aapt 编译失败。
+
+    **现象**（run #50 真实踩到）：
+    ```
+    strings.xml:1029:2: Failed to flatten XML for resource
+    'linux_pentest_ad_summary' with error: Invalid unicode escape sequence in string
+    ```
+
+    **根因**：Android 的资源字符串里，`'` 是转义字符的引导符
+    （跟 `\\n` / `\\t` 同理）。写成 `NetExec's` 时 aapt 认为 `'s`
+    是一个转义序列，而 `s` 不是合法转义字符 → 报错。
+
+    **两种合法写法**：
+    1. 转义：`NetExec\\'s`
+    2. 整段用双引号包住：`"NetExec's"`（会让引号本身也显示出来，不推荐）
+
+    这里只检查「裸的单引号」，也就是既没有反斜杠前缀、也不在双引号内的。
+    """
+    errors = []
+    # 先扫所有语言目录下的 strings 类 xml
+    for locale in ("values", "values-b+zh+Hans", "values-b+zh+Hant"):
+        directory = RES_DIR / locale
+        if not directory.is_dir():
+            continue
+        for xml in directory.glob("*.xml"):
+            text = xml.read_text(encoding="utf-8")
+            # 逐个 <string> 提取内容
+            for match in re.finditer(
+                r'<string name="([a-z0-9_]+)"[^>]*>(.*?)</string>', text, re.S
+            ):
+                name = match.group(1)
+                body = match.group(2)
+                # 去掉已转义的 \'
+                cleaned = body.replace("\\'", "")
+                # 注意：不要用「删除双引号包裹片段」的方式处理。
+                # aapt 的双引号语义是「保留引号内的空白」，不是「免转义」，
+                # 所以 `"NetExec's"` 里的单引号**依然要转义**。
+                # 之前这里删了 "..." 片段，导致 `The aardwolf ... NetExec's` 这类
+                # 长句（句中本来就有一对引号）被整段吃掉，检查失效。
+                if "'" in cleaned:
+                    errors.append(
+                        f"{locale}/{xml.name} 的 {name} 含裸单引号，"
+                        f"aapt 会报 Invalid unicode escape sequence；改成 \\' 或去掉撇号"
+                    )
+    if not errors:
+        print("  没有裸单引号")
+    return errors
+
+
 def check_block_depth() -> list:
     """花括号深度必须归零，且每个文件的嵌套层级要与缩进大致相符。
 
@@ -319,10 +369,13 @@ def main() -> int:
     print("[3/5] 花括号深度归零")
     failures += check_block_depth()
 
-    print("[4/5] 字符串资源对照")
+    print("[4/6] 字符串资源对照")
     failures += check_string_resources()
 
-    print("[5/5] 关键 import + 声明顺序")
+    print("[5/6] 字符串裸单引号（aapt 会报 Invalid unicode escape）")
+    failures += check_string_apostrophes()
+
+    print("[6/6] 关键 import + 声明顺序")
     failures += check_imports()
     import subprocess
     for script in ("ci/verify_profile_decl_order.py", "ci/verify_re_lab_profiles.py"):

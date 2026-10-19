@@ -1031,7 +1031,7 @@
   <string name="linux_pentest_cloud_summary">awscli / kubectl / gitleaks / trufflehog / semgrep / scoutsuite / pacu; ~300 MB, the largest group in this list. Afterwards protobuf and urllib3 are pinned back to compatible versions so angr and semgrep keep working.</string>
   <string name="linux_pentest_cloud_ready">Cloud and audit group is ready (awscli / kubectl / gitleaks / trufflehog / semgrep / scoutsuite / pacu)</string>
   <string name="linux_pentest_ad">Pentest · Internal AD</string>
-  <string name="linux_pentest_ad_summary">impacket / NetExec / certipy-ad; ~120 MB including the Rust toolchain. NetExec's aardwolf dependency must be compiled with Rust, and NetExec itself is only available from GitHub source (it is not on PyPI); afterwards cryptography is pinned back so mitmproxy keeps working.</string>
+  <string name="linux_pentest_ad_summary">impacket / NetExec / certipy-ad; ~120 MB including the Rust toolchain. The aardwolf dependency of NetExec must be compiled with Rust, and NetExec itself is only available from GitHub source (it is not on PyPI); afterwards cryptography is pinned back so mitmproxy keeps working.</string>
   <string name="linux_pentest_ad_ready">Internal AD group is ready (impacket / NetExec / certipy-ad)</string>
   <string name="linux_pentest_wifi">Pentest · Wireless</string>
   <string name="linux_pentest_wifi_summary">aircrack-ng; ~10 MB. Offline pcap analysis only — capturing requires a monitor-mode NIC, which phone chipsets generally do not support.</string>
