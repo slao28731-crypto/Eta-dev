@@ -236,6 +236,8 @@ call.optJSONObject("function")?.put("arguments", JSONObject().put("redacted", tr
 - `mcp_list_servers` 返回 `enabledToolTotal` / `runToolLimit` / `overLimit`，超额时附精简建议。
 **教训**：**「上限」这件事必须同时回答三个问题：额度是全局的还是每实例的、超了之后是报错还是静默丢弃、谁负责把这个事实告诉调用方**。这次三个都没答，于是出现了"模型以为全都能用、用户以为服务坏了、重启以为能修好"的三方误判。另外 `forEach` 里做早退判断时要意识到它是 lambda，`return@forEach` 永远不是 `break`——想截断就用 `take` 或 `for` + `break`。
 **附**：对比 Operit（`AAswordman/Operit`）的做法——它的 `MCPPackage.toToolPackage()` 直接把工具 `map` 成 `ToolPackage`，`listTools()` 也不设上限；它靠"包制"让模型先选包再选工具，从结构上避免了平铺目录爆炸。Eta 是平铺架构，照搬等于重做工具层，所以先放宽额度 + 对齐文案。
+**验证结果（2026-10-19 真机）**：用户装包实测，51 + 49 共 100 个工具全部进入单轮目录，原被裁掉的 36 个恢复可调，`TOOL_NOT_AVAILABLE` 不再复现，验收通过。
+**遗留**：`McpRunContextTest` 新增的 2 条用例未能在 PRoot 环境执行（`AAPT2 daemon startup failed`，`processDebugResources` 失败），需在正常构建环境或 CI 补跑。
 
 ---
 

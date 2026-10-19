@@ -43,7 +43,10 @@
 
 - [x] **2026-10-19** 修 P082 单轮 MCP 工具额度截断：`MAX_RUN_TOOLS` 64 → 256（全局共享，多服务累加）、`MAX_DISCOVERED_TOOLS` 128 → 512、`MAX_LIST_PAGES` 8 → 16。把 `server.activeTools.forEach { if (size>=MAX) return@forEach }` 这种「假截断（只跳过当前元素，外层空转）」换成 `take(remaining)` 显式截断。目录内单工具描述截到 400 字（数据库仍存 2000）。`mcp_add_server` 改为返回 `registeredToolCount` + `unavailableModelTools`，不再谎报「全部启用」；`mcp_list_servers` 补 `enabledToolTotal` / `runToolLimit` / `overLimit` + 超额精简提示。新增 2 条契约测试
 - [x] **2026-10-19** 调研 Operit（`AAswordman/Operit`）的 MCP 处理方式作参照：其 `MCPPackage.toToolPackage()` 把工具直接 `map` 成 `ToolPackage`，`listTools()` 无数量上限，靠「包制」（模型先选包再选工具）从结构上避免平铺目录爆炸。Eta 是平铺架构，照搬需重做工具层，因此本轮只放宽额度 + 对齐文案
+- [x] **2026-10-19** 第四轮真机验收通过（用户原话：「好了，验收通过」）：51 + 49 两个服务共 100 个工具全部进入单轮目录，原先被裁掉的 36 个恢复可调，`TOOL_NOT_AVAILABLE` 不再复现。提交 `b4de086`（代码）+ `59a78c2`（文档）
+
 ## 进行中
+
 _暂无_
 
 ## 待办
